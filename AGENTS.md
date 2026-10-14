@@ -64,6 +64,11 @@ FastAPI se crea con `docs_url=None, redoc_url=None`: **no hay `/docs` ni `/redoc
 9. Para cálculos nuevos, añade primero pruebas de medianoche, pausa, franja nocturna, festivo, filtros/periodos y transiciones horarias.
 10. Actualiza README/docs al cambiar interfaces, reglas, rutas, comandos o límites; no documentes como existente lo que solo está planificado.
 
+## Iniciador y empaquetado
+
+- `launcher/launch.py` (multiplataforma) arranca uvicorn, muestra una ventana Tkinter con `assets/icon.png` y abre el navegador; `launcher/launch.bat`/`.command` y `launcher/install_desktop.sh` son envoltorios por SO. `launcher/build_icons.py` regenera iconos (requiere Pillow). No requiere dependencias nuevas en runtime.
+- Repo remoto: `https://github.com/yosoyignicion/MVSCS.git` (rama `main`). No se versionan `data/` (salvo `.gitkeep`), `.engram/`, `*.sqlite3` ni importaciones/exportaciones.
+
 ## Cambios de datos y archivos
 
 - Para probar usa base temporal bajo pytest o `SHIFTS_DB_PATH`; nunca la base local.

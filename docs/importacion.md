@@ -57,7 +57,7 @@ VS-1042,Edificio principal,València,Valencia,2026-04-10,22:00,06:00,01:00,01:30
 - Una pausa remunerada se conserva como tal y no se resta. Una pausa no remunerada se excluye de horas trabajadas y subtotales.
 - Datos inválidos (fecha/hora/pausa o falta de `id`/puesto): fila a **Por revisar**; no se cuenta hasta corregirla. El ID y el puesto desconocidos **ya no** mandan la fila a revisión: se crean al confirmar.
 - Las filas válidas se mantienen pendientes explícitamente y tampoco se cuentan hasta pulsar **Confirmar turno**.
-- No hay detector de duplicados ni fusión de empleados/puestos en esta versión (pendiente). Evita importar dos veces el mismo periodo.
+- **Nombre duplicado**: si el ID no existe pero el nombre coincide con el de un empleado ya registrado (con otro ID), la fila va a **Por revisar** en vez de crear otro empleado. En **Por revisar ▸ Posibles duplicados** se pueden **unificar** dos empleados de mismo nombre (`POST /api/employees/{destino}/merge`), moviendo turnos y resúmenes. Aún no hay detector de turnos repetidos.
 
 ## Resumen mensual
 
