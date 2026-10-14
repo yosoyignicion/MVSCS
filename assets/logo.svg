@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="160" viewBox="0 0 640 160" role="img" aria-label="MVSCS Private Dashboard">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#11243a"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="144" height="144" rx="32" fill="url(#bg)" stroke="#11243a" stroke-width="2"/>
+  <path d="M80 34 L116 34 L116 78 L80 118 L44 78 L44 34 Z" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linejoin="round"/>
+  <text x="176" y="82" font-family="DejaVu Sans, Arial, sans-serif" font-size="62" font-weight="700" fill="#f1f5f9">MVSCS</text>
+  <text x="178" y="116" font-family="DejaVu Sans, Arial, sans-serif" font-size="21" letter-spacing="4" fill="#38bdf8">PRIVATE DASHBOARD</text>
+</svg>

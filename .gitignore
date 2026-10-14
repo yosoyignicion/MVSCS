@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and secrets
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Local application data (contains potentially sensitive employee data)
+data/*
+!data/.gitkeep
+*.sqlite
+*.sqlite3
+*.db
+
+# User documents, imports and exports
+*.pdf
+*.xlsx
+*.xls
+*.csv
+!tests/fixtures/*.csv
+
+# Local agent memory
+.engram/
+
+# Build and editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
