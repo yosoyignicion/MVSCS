@@ -62,6 +62,6 @@ Los endpoints de API interactúan con SQLite directamente dentro de `main.py`. S
 
 - No hay autenticación: loopback no equivale a control de acceso. No exponer el puerto a una red compartida.
 - El importador acepta CSV, Excel (.xlsx/.xlsm) y PDF digital con tabla. PDF escaneado/OCR, comprensión de colores y LM Studio aún no existen.
-- Festivos estatales y autonómicos (Comunitat Valenciana 2025–2026) se precargan para Castelló de la Plana; los **locales** y los puestos se mantienen manualmente. La app no descarga calendarios de Internet en tiempo de ejecución.
+- Festivos estatales y autonómicos (Comunitat Valenciana 2025–2026) y locales de Castelló 2026 se precargan para Castelló de la Plana; el resto de locales y los puestos se mantienen manualmente. La app no descarga calendarios de Internet en tiempo de ejecución.
 - La bandeja de revisión cubre filas dudosas y turnos importados pendientes; no es un sistema completo de auditoría/versionado.
 - No se ofrece restauración de copias, exportación XLSX/PDF ni informes de nómina.

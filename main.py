@@ -29,9 +29,10 @@ DEFAULT_MUNICIPALITY = "Castelló de la Plana"
 DEFAULT_PROVINCE = "Castellón"
 
 # Festivos oficiales estatales + Comunitat Valenciana (2025-2026) para Castelló de la Plana.
-# Fuente del calendario nacional/autonómico: librería `holidays` (ES, subdivisión VC).
-# Los festivos LOCALES de cada municipio no se incluyen: añádelos o confírmalos por separado
-# (la app nunca afirma que el calendario esté completo sin revisión explícita).
+# Fuente nacional/autonómica: librería `holidays` (ES, subdivisión VC).
+# Locales de Castelló de la Plana 2026 (Magdalena y San Pedro): calendario de la Cámara de
+# Comercio de Castellón 2026. Los festivos LOCALES de 2025 y de otros municipios no se
+# incluyen: se añaden o revisan por separado (la app no certifica exhaustividad).
 OFFICIAL_HOLIDAYS: list[tuple[str, str]] = [
     ("2025-01-01", "Año Nuevo"),
     ("2025-01-06", "Epifanía del Señor"),
@@ -49,11 +50,13 @@ OFFICIAL_HOLIDAYS: list[tuple[str, str]] = [
     ("2025-12-25", "Natividad del Señor"),
     ("2026-01-01", "Año Nuevo"),
     ("2026-01-06", "Epifanía del Señor"),
+    ("2026-03-09", "Fiestas de la Magdalena (local)"),
     ("2026-03-19", "San José"),
     ("2026-04-03", "Viernes Santo"),
     ("2026-04-06", "Lunes de Pascua"),
     ("2026-05-01", "Fiesta del Trabajo"),
     ("2026-06-24", "San Juan"),
+    ("2026-06-29", "San Pedro (local)"),
     ("2026-08-15", "Asunción de la Virgen"),
     ("2026-10-09", "Día de la Comunitat Valenciana"),
     ("2026-10-12", "Fiesta Nacional de España"),

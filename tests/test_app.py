@@ -230,6 +230,8 @@ def test_official_holidays_are_loaded_for_default_municipality(client):
     rows_2026 = test_client.get("/api/holidays", params={"year": 2026, "municipality": "Castelló de la Plana"}).json()
     dates = {row["date"] for row in rows_2026}
     assert "2026-03-19" in dates  # San José (autonómico)
+    assert "2026-03-09" in dates  # Fiestas de la Magdalena (local Castelló)
+    assert "2026-06-29" in dates  # San Pedro (local Castelló)
     assert "2026-10-09" in dates  # Día de la Comunitat Valenciana
     assert "2026-12-25" in dates  # Navidad
     second = test_client.get("/api/holidays", params={"year": 2026, "municipality": "Castelló de la Plana"}).json()

@@ -27,7 +27,7 @@ Una base, CSV o futura importación de cuadrantes puede contener datos personale
 
 ## Mantenimiento de calendarios y reglas
 
-Festivos, municipio del puesto, franja 22:00–06:00 y significado de pausa requieren verificación humana. La app precarga los festivos estatales + autonómicos (Comunitat Valenciana 2025–2026) para Castelló de la Plana; los **locales** de cada municipio se añaden o revisan a mano, y la precarga no certifica exhaustividad. Las reglas de la app no determinan salarios ni cumplimiento de normativa laboral.
+Festivos, municipio del puesto, franja 22:00–06:00 y significado de pausa requieren verificación humana. La app precarga los festivos estatales + autonómicos (Comunitat Valenciana 2025–2026) y los **locales de Castelló 2026** (Magdalena y San Pedro); los de 2025 y otros municipios se añaden o revisan a mano, y la precarga no certifica exhaustividad. Las reglas de la app no determinan salarios ni cumplimiento de normativa laboral.
 
 ## Incidentes de datos
 

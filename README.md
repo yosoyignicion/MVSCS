@@ -112,7 +112,7 @@ VS-1042,Edificio principal,València,Valencia,2026-04-10,22:00,06:00,01:00,01:30
 
 ## Festivos oficiales
 
-La app **precarga** los festivos **estatales y autonómicos** (Comunitat Valenciana 2025–2026) para `Castelló de la Plana`. Los **festivos locales** de cada municipio se añaden o revisan a mano en **Puestos ▸ Festivos por municipio**.
+La app **precarga** los festivos **estatales y autonómicos** (Comunitat Valenciana 2025–2026) y, para **2026**, los **locales de Castelló de la Plana** (Fiestas de la Magdalena y San Pedro), todo para `Castelló de la Plana`. Los locales de 2025 y de otros municipios se añaden o revisan a mano en **Puestos ▸ Festivos por municipio**.
 
 Fuentes oficiales si necesitas verificarlos:
 

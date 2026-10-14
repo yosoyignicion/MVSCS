@@ -5,7 +5,7 @@
 - **Empleado (`employees`)**: UUID, código/ID único, nombre, apellidos, indicador activo y fecha de alta. Se crean a mano o al importar; la app arranca sin datos ficticios.
 - **Puesto (`posts`)**: UUID, nombre, municipio, provincia e indicador activo. La unicidad está definida por nombre y municipio. Es la ubicación operativa a la que se atribuyen festivos locales.
 - **Turno (`shifts`)**: empleado, puesto, inicio y fin locales, pausa opcional, condición remunerada/no remunerada, estado (`pending`/`confirmed`), origen y etiqueta de origen.
-- **Festivo (`holidays`)**: fecha, municipio y nombre. Se precargan los festivos estatales + Comunitat Valenciana 2025–2026 para `Castelló de la Plana` (`sync_official_holidays`, idempotente); los **locales** de cada municipio se añaden o revisan a mano.
+- **Festivo (`holidays`)**: fecha, municipio y nombre. Se precargan los festivos estatales + Comunitat Valenciana 2025–2026 para `Castelló de la Plana` (`sync_official_holidays`, idempotente); incluye los **locales de Castelló 2026** (Magdalena y San Pedro) y los locales de 2025/otros municipios se añaden o revisan a mano.
 - **Fila en revisión (`review_items`)**: etiqueta de origen, fila original serializada y lista de incidencias. Sirve para conservar importaciones incompletas antes de la conciliación manual.
 - **Resumen mensual (`monthly_summaries`)**: empleado, puesto opcional, mes (`YYYY-MM`) y minutos totales. Se importa aparte; **no son turnos** y no entran en los totales de horas.
 
