@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -196,6 +196,10 @@ class ShiftInput(BaseModel):
 
 class ImportRows(BaseModel):
     rows: list[dict[str, Any]] = Field(min_length=1, max_length=5000)
+
+
+class ShiftIds(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=5000)
 
 
 class ConfirmImport(BaseModel):
@@ -749,6 +753,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="Turnos · Gestor local", docs_url=None, redoc_url=None)
     app.state.db_path = selected_path
 
+    @app.middleware("http")
+    async def no_store_api(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
@@ -851,6 +862,15 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(404, "No se encontró un turno pendiente.")
             conn.commit()
             return {"status": "confirmed"}
+
+    @app.post("/api/shifts/review")
+    def send_shifts_to_review(data: ShiftIds) -> dict[str, int]:
+        ids = list(dict.fromkeys(data.ids))
+        with closing(connect(selected_path)) as conn:
+            placeholders = ",".join("?" for _ in ids)
+            result = conn.execute(f"UPDATE shifts SET status='pending' WHERE status='confirmed' AND id IN ({placeholders})", ids)
+            conn.commit()
+            return {"updated": result.rowcount, "requested": len(ids)}
 
     @app.post("/api/review/{review_id}/resolve", status_code=201)
     def resolve_review(review_id: str, data: ShiftInput) -> dict[str, str]:

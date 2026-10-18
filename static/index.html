@@ -67,7 +67,31 @@
         <div class="table-card hidden" id="summaries-card"><div class="table-scroll"><table><thead><tr><th>EMPLEADO</th><th>MES</th><th>HORAS</th><th>ORIGEN</th><th>ACCIONES</th></tr></thead><tbody id="summaries-body"></tbody></table></div></div>
       </section>
 
-      <section class="page-content alternate-view hidden" id="shifts-view" data-page="shifts"><div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> PLANIFICACIÓN REALIZADA</div><h1>Cuadrante<span class="period">.</span></h1><p class="subheading">Revisa los turnos confirmados del periodo.</p></div><button class="button button-primary" data-open-shift><span class="button-plus">＋</span> Registrar turno</button></div><div class="control-row compact-controls"><div class="period-control"><button class="period-arrow" data-month-step="-1" aria-label="Periodo anterior">‹</button><button class="period-label shared-period"></button><button class="period-arrow" data-month-step="1" aria-label="Periodo siguiente">›</button></div><label class="select-wrap"><span class="select-caption">VISTA</span><select class="period-select" id="page-period-mode" name="page_period_mode"><option value="month">Mes</option><option value="year">Año</option></select><span class="select-chevron">⌄</span></label><label class="select-wrap"><span class="select-caption">PUESTO</span><select class="post-select" id="page-post-filter"><option value="">Todos los puestos</option></select><span class="select-chevron">⌄</span></label><div class="control-spacer"></div><button class="button button-secondary" id="export-csv">↓ Exportar CSV</button></div><div class="table-card"><div class="table-scroll"><table><thead><tr><th>EMPLEADO</th><th>PUESTO / MUNICIPIO</th><th>FECHA</th><th>HORARIO</th><th>PAUSA</th><th>DURACIÓN</th><th>NOCHE</th><th>FESTIVAS</th><th>ACCIONES</th></tr></thead><tbody id="shifts-body"></tbody></table></div><div class="table-empty hidden" id="shifts-empty"><span>▦</span><strong>No hay turnos para mostrar</strong><small>Cambia el periodo o registra un turno.</small></div></div></section>
+      <section class="page-content alternate-view hidden" id="shifts-view" data-page="shifts">
+        <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> PLANIFICACIÓN REALIZADA</div><h1>Cuadrante<span class="period">.</span></h1><p class="subheading">Revisa los turnos confirmados del periodo.</p></div><button class="button button-primary" data-open-shift><span class="button-plus">＋</span> Registrar turno</button></div>
+        <div class="control-row compact-controls">
+          <div class="period-control"><button class="period-arrow" data-month-step="-1" aria-label="Periodo anterior">‹</button><button class="period-label shared-period"></button><button class="period-arrow" data-month-step="1" aria-label="Periodo siguiente">›</button></div>
+          <label class="select-wrap"><span class="select-caption">VISTA</span><select class="period-select" id="page-period-mode" name="page_period_mode"><option value="month">Mes</option><option value="year">Año</option></select><span class="select-chevron">⌄</span></label>
+          <label class="select-wrap"><span class="select-caption">PUESTO</span><select class="post-select" id="page-post-filter"><option value="">Todos los puestos</option></select><span class="select-chevron">⌄</span></label>
+          <div class="control-spacer"></div>
+          <button class="button button-secondary" id="toggle-excel">▦ Vista Excel</button>
+          <button class="button button-secondary" id="export-csv">↓ Exportar CSV</button>
+        </div>
+        <div class="bulk-bar hidden" id="bulk-bar">
+          <strong id="bulk-count">0 seleccionados</strong>
+          <button class="button button-secondary" type="button" id="bulk-clear">Limpiar selección</button>
+          <button class="button button-primary" type="button" id="bulk-review">→ Enviar a revisión</button>
+        </div>
+        <div class="table-card" id="shifts-card">
+          <div class="table-scroll"><table><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>EMPLEADO</th><th>PUESTO / MUNICIPIO</th><th>FECHA</th><th>HORARIO</th><th>PAUSA</th><th>DURACIÓN</th><th>NOCHE</th><th>FESTIVAS</th><th>ACCIONES</th></tr></thead><tbody id="shifts-body"></tbody></table></div>
+          <div class="table-empty hidden" id="shifts-empty"><span>▦</span><strong>No hay turnos para mostrar</strong><small>Cambia el periodo o registra un turno.</small></div>
+        </div>
+        <div class="table-card hidden" id="excel-card">
+          <div class="excel-toolbar"><div><strong>Edición rápida</strong><small>Cambia empleado, puesto u horario en la propia tabla y pulsa «Guardar cambios».</small></div><button class="button button-primary" type="button" id="excel-save">Guardar cambios</button></div>
+          <div class="table-scroll"><table class="excel-table"><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>EMPLEADO</th><th>PUESTO</th><th>ENTRADA</th><th>SALIDA</th><th>PAUSA INI</th><th>PAUSA FIN</th><th>PAGADA</th><th>DURACIÓN</th><th>ACCIÓN</th></tr></thead><tbody id="excel-body"></tbody></table></div>
+          <div class="table-empty hidden" id="excel-empty"><span>▦</span><strong>No hay turnos para editar</strong><small>Cambia el periodo o registra un turno.</small></div>
+        </div>
+      </section>
 
       <section class="page-content alternate-view hidden" id="employees-view" data-page="employees"><div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> EQUIPO</div><h1>Empleados<span class="period">.</span></h1><p class="subheading">Busca y consulta las horas realizadas por persona.</p></div><button class="button button-primary" id="add-employee"><span class="button-plus">＋</span> Añadir empleado</button></div><div class="control-row"><div class="search-box wide-search"><span class="search-icon">⌕</span><input id="employees-search" name="employees_search" autocomplete="off" placeholder="Buscar por nombre o ID" aria-label="Buscar por nombre o ID"></div><div class="control-spacer"></div><span class="item-total" id="employee-total">— empleados</span></div><div class="employee-grid" id="employee-grid"></div></section>
 

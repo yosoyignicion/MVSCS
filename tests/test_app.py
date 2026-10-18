@@ -333,3 +333,33 @@ def test_import_rejects_unsupported_extension_and_broken_signature(client):
     assert fake_xlsx.status_code == 422
     fake_pdf = test_client.post("/api/imports/preview", files={"file": ("falso.pdf", b"no es pdf", "application/pdf")})
     assert fake_pdf.status_code == 422
+
+
+def test_api_responses_are_not_cached(client):
+    test_client, _ = client
+    response = test_client.get("/api/employees")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_confirmed_shifts_can_be_sent_to_review_individually_and_in_bulk(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    first = add_shift(test_client, employee, post)
+    second = add_shift(test_client, employee, post, start_at="2026-04-11T08:00", end_at="2026-04-11T16:00", break_start_at=None, break_end_at=None)
+    assert first.status_code == 201 and second.status_code == 201
+
+    response = test_client.post("/api/shifts/review", json={"ids": [first.json()["id"], second.json()["id"], "no-existe"]})
+    assert response.status_code == 200
+    assert response.json() == {"updated": 2, "requested": 3}
+
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert report["totals"]["hours"] == "00:00"
+    assert report["shifts"] == []
+
+    queue = test_client.get("/api/review").json()
+    pending_ids = {item["shift"]["id"] for item in queue if item["kind"] == "shift"}
+    assert pending_ids == {first.json()["id"], second.json()["id"]}
+
+    again = test_client.post("/api/shifts/review", json={"ids": [first.json()["id"]]})
+    assert again.json()["updated"] == 0

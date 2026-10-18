@@ -83,7 +83,7 @@ Si el mismo **nombre** aparece con **IDs distintos**, la app lo detecta y lo mue
 
 ### 3. Modificación y consulta
 
-El **Cuadrante** muestra los turnos confirmados; puedes editar un turno confirmado o exportar el periodo a CSV.
+El **Cuadrante** muestra los turnos confirmados; puedes editar un turno, exportar el periodo a CSV o cambiar a **Vista Excel** para edición rápida en una tabla compacta (empleado, puesto y horarios sin abrir diálogos). Desde la misma tabla puedes seleccionar turnos (uno o varios) y **enviarlos a revisión**: dejan de sumar en los totales hasta que los confirmes de nuevo.
 
 ![Cuadrante](docs/img/02-cuadrante.png)
 

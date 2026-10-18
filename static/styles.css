@@ -12,3 +12,19 @@
 .text-button{color:#46607a}
 .pill-confirmed{color:#2b7a5f}
 .pill-night{color:#6a52ad}
+
+.check-col{width:34px;padding-right:0!important;text-align:center}
+.check-col input{accent-color:#317d6d;cursor:pointer}
+.row-actions{display:flex;gap:5px}
+.bulk-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:9px 13px;background:#f2f8f5;border:1px solid #cfe5db;border-radius:7px;color:#2f5f52;font-size:10px}
+.bulk-bar strong{margin-right:auto;font-size:10px}
+.excel-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;background:#fafbfd;border-bottom:1px solid #edf0f3}
+.excel-toolbar>div{display:grid;gap:2px}
+.excel-toolbar strong{color:#33465b;font-size:10px}
+.excel-toolbar small{color:#92a0ad;font-size:8px}
+.excel-table th{padding:0 6px}
+.excel-table td{height:38px;padding:3px 6px}
+.excel-table select,.excel-table input{width:100%;min-width:118px;height:28px;padding:3px 5px;background:#fff;border:1px solid #dfe6ec;border-radius:4px;color:#435568;font:9px Inter,sans-serif}
+.excel-table input[type="datetime-local"]{min-width:168px}
+.excel-table tr.dirty td{background:#fff9e8}
+.excel-table tr.dirty td:first-child{box-shadow:inset 3px 0 #d9a441}

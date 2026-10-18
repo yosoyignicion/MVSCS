@@ -46,6 +46,7 @@ No se persisten totales agregados de turnos como autoridad: los informes derivan
 | `GET/POST /api/shifts` | Consultar/crear turnos |
 | `PATCH /api/shifts/{id}` | Editar turno confirmado |
 | `POST /api/shifts/{id}/confirm` | Confirmar turno importado pendiente |
+| `POST /api/shifts/review` | Enviar uno o varios turnos confirmados a revisión (dejan de contar hasta confirmarlos) |
 | `DELETE /api/shifts/{id}` | Descartar solo un turno pendiente |
 | `GET/POST/DELETE /api/holidays` | Festivos (estatales/autonómicos precargados + locales manuales) |
 | `GET/DELETE /api/monthly-summaries` | Listar/eliminar resúmenes mensuales importados |

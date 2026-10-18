@@ -1,6 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = { date: new Date(), mode: 'month', employees: [], posts: [], report: null, review: [], duplicates: [], holidays: [], editingShift: null, toastTimer: null };
+const state = { date: new Date(), mode: 'month', employees: [], posts: [], report: null, review: [], duplicates: [], holidays: [], editingShift: null, toastTimer: null, excelView: false, selectedShifts: new Set() };
 const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDate = (value) => new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'short'}).format(new Date(`${value.slice(0,10)}T12:00:00`)).replace('.', '');
@@ -18,7 +18,8 @@ const setMonthLabels = () => {
   $$('.period-arrow').forEach(el => { if(el.id==='prev-month'||el.id==='next-month'||el.hasAttribute('data-month-step'))el.setAttribute('aria-label',state.mode==='year'?'Año anterior/siguiente':'Mes anterior/siguiente'); });
 };
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const method = (options.method || 'GET').toUpperCase();
+  const response = await fetch(path, method === 'GET' ? { ...options, cache: 'no-store' } : options);
   if (!response.ok) {
     let message = `Error ${response.status}`;
     try { const body = await response.json(); message = typeof body.detail === 'string' ? body.detail : (body.detail?.message || message); } catch {}
@@ -34,8 +35,13 @@ function toast(message) {
 function showError(target, message) { target.textContent=message; target.classList.remove('hidden'); }
 function clearError(target) { target.textContent=''; target.classList.add('hidden'); }
 function selectedPost() { return $('#post-filter').value || ''; }
+let baseSeq = 0;
+let reportSeq = 0;
 async function reloadBase() {
-  [state.employees,state.posts,state.review,state.holidays] = await Promise.all([api('/api/employees?limit=5000'),api('/api/posts'),api('/api/review'),api(`/api/holidays?year=${state.date.getFullYear()}`)]);
+  const seq = ++baseSeq;
+  const result = await Promise.all([api('/api/employees?limit=5000'),api('/api/posts'),api('/api/review'),api(`/api/holidays?year=${state.date.getFullYear()}`)]);
+  if (seq !== baseSeq) return;
+  [state.employees,state.posts,state.review,state.holidays] = result;
   fillSelects(); renderEmployees(); renderPosts(); renderReview(); renderHolidays();
 }
 function fillSelects() {
@@ -48,12 +54,15 @@ function fillSelects() {
   const shiftEmployee=$('#shift-employee'); shiftEmployee.innerHTML='<option value="">Selecciona empleado</option>'+state.employees.map(e=>`<option value="${esc(e.id)}">${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');
 }
 async function reloadReport() {
+  const seq = ++reportSeq;
   setMonthLabels();
   const post = selectedPost(); const search = $('#employee-search').value.trim();
   const params = new URLSearchParams({year:String(state.date.getFullYear())});
   if(state.mode==='month')params.set('month',String(state.date.getMonth()+1)); if(post)params.set('post_id',post); if(search)params.set('q',search);
   if(state.mode==='year')params.set('group_by_employee','false');
-  state.report=await api(`/api/reports?${params}`);
+  const report=await api(`/api/reports?${params}`);
+  if (seq !== reportSeq) return;
+  state.report=report;
   renderReport();
 }
 function renderReport() {
@@ -89,9 +98,64 @@ function renderPostsSummary(posts,total) {
 function renderShiftTable(report) {
   const body=$('#shifts-body');
   const rows=state.mode==='year'?(report.days||[]).map(day=>({id:null,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los puestos',municipality:'Comunitat Valenciana',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
-  body.innerHTML=rows.slice(0,1000).map(s=>`<tr><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)}</small></span></td><td>${esc(s.start_at.slice(0,10))}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' · pagada':''}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button>`}</td></tr>`).join('');
+  body.innerHTML=rows.slice(0,1000).map(s=>`<tr data-shift-row="${esc(s.id)}"><td class="check-col">${s.id?`<input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno de ${esc(`${s.first_name} ${s.last_name}`.trim())}">`:''}</td><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)}</small></span></td><td>${esc(s.start_at.slice(0,10))}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' · pagada':''}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<div class="row-actions"><button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button><button class="shift-edit" data-review-shift="${esc(s.id)}">Revisión</button></div>`}</td></tr>`).join('');
   $('#shifts-empty').classList.toggle('hidden',rows.length>0);
   $('#shifts-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
+  renderExcelTable(report);
+  updateShiftView();
+  syncShiftSelection();
+}
+function renderExcelTable(report) {
+  const body=$('#excel-body'); if(!body)return;
+  const rows=state.mode==='month'?report.shifts:[];
+  const employeeOptions=(selected)=>state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');
+  const postOptions=(selected)=>state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('');
+  body.innerHTML=rows.map(s=>`<tr data-shift-row="${esc(s.id)}" data-shift-id="${esc(s.id)}"><td class="check-col"><input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno"></td><td><select data-field="employee_id">${employeeOptions(s.employee_id)}</select></td><td><select data-field="post_id">${postOptions(s.post_id)}</select></td><td><input data-field="start_at" type="datetime-local" value="${esc(s.start_at.slice(0,16))}"></td><td><input data-field="end_at" type="datetime-local" value="${esc(s.end_at.slice(0,16))}"></td><td><input data-field="break_start_at" type="datetime-local" value="${esc((s.break_start_at||'').slice(0,16))}"></td><td><input data-field="break_end_at" type="datetime-local" value="${esc((s.break_end_at||'').slice(0,16))}"></td><td><select data-field="break_paid"><option value="false" ${!s.break_paid?'selected':''}>No</option><option value="true" ${s.break_paid?'selected':''}>Sí</option></select></td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td><button class="shift-edit" type="button" data-review-shift="${esc(s.id)}">Revisión</button></td></tr>`).join('');
+  $('#excel-empty').classList.toggle('hidden',rows.length>0);
+  $('#excel-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
+}
+function updateShiftView() {
+  const excel=state.excelView&&state.mode==='month';
+  $('#shifts-card')?.classList.toggle('hidden',excel);
+  $('#excel-card')?.classList.toggle('hidden',!excel);
+  const toggle=$('#toggle-excel');
+  if(toggle){toggle.textContent=excel?'▤ Vista normal':'▦ Vista Excel';toggle.disabled=state.mode==='year';toggle.title=state.mode==='year'?'La edición rápida solo está disponible en vista mensual':'';}
+}
+function syncShiftSelection() {
+  const ids=state.mode==='month'?(state.report?.shifts||[]).map(s=>s.id):[];
+  const valid=new Set(ids);
+  [...state.selectedShifts].forEach(id=>{if(!valid.has(id))state.selectedShifts.delete(id)});
+  $$('[data-select-shift]').forEach(cb=>{cb.checked=state.selectedShifts.has(cb.dataset.selectShift)});
+  const count=state.selectedShifts.size;
+  const bar=$('#bulk-bar'); if(bar)bar.classList.toggle('hidden',count===0);
+  const label=$('#bulk-count'); if(label)label.textContent=`${count} seleccionado${count===1?'':'s'}`;
+  $$('.select-all-shifts').forEach(cb=>{cb.checked=ids.length>0&&count===ids.length;cb.indeterminate=count>0&&count<ids.length;cb.disabled=ids.length===0;});
+}
+async function sendShiftsToReview(ids) {
+  const unique=[...new Set(ids)].filter(Boolean);
+  if(!unique.length)return toast('Selecciona al menos un turno.');
+  if(!window.confirm(`¿Enviar ${unique.length} turno(s) a revisión? Dejarán de contar en los totales hasta confirmarlos.`))return;
+  try{
+    const result=await api('/api/shifts/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:unique})});
+    state.selectedShifts.clear();
+    await loadAll();
+    await reloadReview();
+    toast(`${result.updated} turno(s) enviados a revisión.`);
+  }catch(error){toast(error.message)}
+}
+async function saveExcelChanges() {
+  const rows=$$('#excel-body tr.dirty');
+  if(!rows.length)return toast('No hay cambios pendientes.');
+  const errors=[];
+  for(const row of rows){
+    const value=(name)=>row.querySelector(`[data-field="${name}"]`)?.value||'';
+    const breakStart=value('break_start_at');
+    const payload={employee_id:value('employee_id'),post_id:value('post_id'),start_at:value('start_at'),end_at:value('end_at'),break_start_at:breakStart||null,break_end_at:value('break_end_at')||null,break_paid:breakStart?value('break_paid')==='true':false};
+    try{await api(`/api/shifts/${row.dataset.shiftId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
+    catch(error){errors.push(error.message);}
+  }
+  await reloadReport();
+  toast(errors.length?`No se guardó todo: ${errors[0]}`:`${rows.length} turno(s) actualizados.`);
 }
 function renderEmployees() {
   const q=($('#employees-search')?.value||'').trim().toLocaleLowerCase('es');
@@ -225,7 +289,25 @@ $('#duplicates-list').addEventListener('click',async e=>{const button=e.target.c
 $('#holiday-list').addEventListener('click',async e=>{const button=e.target.closest('[data-delete-holiday]');if(!button)return;try{await api(`/api/holidays/${button.dataset.deleteHoliday}`,{method:'DELETE'});await reloadBase();await reloadReport();toast('Festivo eliminado.')}catch(error){toast(error.message)}});
 $('#summaries-body').addEventListener('click',async e=>{const button=e.target.closest('[data-delete-summary]');if(!button)return;try{await api(`/api/monthly-summaries/${button.dataset.deleteSummary}`,{method:'DELETE'});await reloadReport();toast('Resumen mensual eliminado.')}catch(error){toast(error.message)}});
 $('#add-holiday').addEventListener('click',()=>{const municipality=$('#holiday-municipality');municipality.innerHTML='<option value="">Selecciona municipio</option>'+[...new Set(state.posts.map(p=>p.municipality))].sort().map(m=>`<option>${esc(m)}</option>`).join('');$('#holiday-form').reset();$('#holiday-error').classList.add('hidden');openDialog('#holiday-dialog')});
-$('#holiday-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api('/api/holidays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});closeDialogs();await reloadBase();await reloadReport();toast('Festivo guardado para ese municipio.')}catch(error){showError($('#holiday-error'),error.message)}});  $('#shifts-body').addEventListener('click',e=>{const button=e.target.closest('[data-edit-shift]');if(!button)return;const shift=state.report.shifts.find(item=>item.id===button.dataset.editShift);if(shift)openShift({id:shift.id,employee:shift.employee_id,post:shift.post_id,start:shift.start_at.slice(0,16),end:shift.end_at.slice(0,16),break_start_at:shift.break_start_at,break_end_at:shift.break_end_at,break_paid:Boolean(shift.break_paid)})});
+$('#holiday-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api('/api/holidays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});closeDialogs();await reloadBase();await reloadReport();toast('Festivo guardado para ese municipio.')}catch(error){showError($('#holiday-error'),error.message)}});
+$('#shifts-view').addEventListener('click',async e=>{
+  const edit=e.target.closest('[data-edit-shift]');
+  if(edit){const shift=state.report.shifts.find(item=>item.id===edit.dataset.editShift);if(shift)openShift({id:shift.id,employee:shift.employee_id,post:shift.post_id,start:shift.start_at.slice(0,16),end:shift.end_at.slice(0,16),break_start_at:shift.break_start_at,break_end_at:shift.break_end_at,break_paid:Boolean(shift.break_paid)});return;}
+  const review=e.target.closest('[data-review-shift]');
+  if(review){await sendShiftsToReview([review.dataset.reviewShift]);}
+});
+$('#shifts-view').addEventListener('change',e=>{
+  const select=e.target.closest('[data-select-shift]');
+  if(select){select.checked?state.selectedShifts.add(select.dataset.selectShift):state.selectedShifts.delete(select.dataset.selectShift);syncShiftSelection();return;}
+  const all=e.target.closest('.select-all-shifts');
+  if(all){const ids=(state.report?.shifts||[]).map(s=>s.id);state.selectedShifts=new Set(all.checked?ids:[]);syncShiftSelection();return;}
+  const field=e.target.closest('#excel-body [data-field]');
+  if(field)field.closest('tr').classList.add('dirty');
+});
+$('#toggle-excel').addEventListener('click',()=>{if(state.mode==='year')return;state.excelView=!state.excelView;updateShiftView();syncShiftSelection();});
+$('#excel-save').addEventListener('click',saveExcelChanges);
+$('#bulk-clear').addEventListener('click',()=>{state.selectedShifts.clear();syncShiftSelection();});
+$('#bulk-review').addEventListener('click',()=>sendShiftsToReview([...state.selectedShifts]));
 $('#help-button').addEventListener('click',()=>toast('Aplicación local. Festivos: añádelos por municipio en el calendario. Turnos importados: confirma antes de calcular informes.'));
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#employee-search').focus()}if(e.key==='Escape')$('#sidebar').classList.remove('open')});
 window.addEventListener('hashchange',()=>navigate(location.hash.replace('#','')==='inicio'?'overview':location.hash.slice(1)));
