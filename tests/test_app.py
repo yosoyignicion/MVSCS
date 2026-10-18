@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import sqlite3
+import zipfile
 from datetime import date, datetime, time, timedelta
 
 import pytest
@@ -325,10 +327,10 @@ def test_pdf_without_table_is_rejected(client):
     assert response.status_code == 422
 
 
-def test_import_rejects_unsupported_extension_and_broken_signature(client):
+def test_import_rejects_garbage_and_broken_signatures(client):
     test_client, _ = client
     docx = test_client.post("/api/imports/preview", files={"file": ("datos.docx", b"x", "application/octet-stream")})
-    assert docx.status_code == 415
+    assert docx.status_code == 422
     fake_xlsx = test_client.post("/api/imports/preview", files={"file": ("falso.xlsx", b"no es un zip", "application/vnd.ms-excel")})
     assert fake_xlsx.status_code == 422
     fake_pdf = test_client.post("/api/imports/preview", files={"file": ("falso.pdf", b"no es pdf", "application/pdf")})
@@ -398,9 +400,13 @@ def test_exported_xlsx_can_be_reimported(client):
     rows = list(sheet.iter_rows(values_only=True))
     workbook.close()
     assert rows[0][0] == "ID empleado"
-    assert rows[1][5] == "2026-04-12"
-    assert rows[1][6] == "22:00"
-    assert rows[1][7] == "06:00"
+    assert rows[0][2] == "ID centro"
+    assert rows[0][3] == "Centro"
+    assert rows[1][2] == post["code"]
+    assert rows[1][3] == post["name"]
+    assert rows[1][4] == "2026-04-12"
+    assert rows[1][5] == "22:00"
+    assert rows[1][6] == "06:00"
 
     preview = test_client.post("/api/imports/preview", files={"file": ("cuadrante-2026-04.xlsx", export.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert preview.status_code == 200, preview.text
@@ -610,7 +616,7 @@ def test_export_neutralizes_formula_injection(client):
     workbook.close()
     assert row[0].startswith("'=")
     assert row[1].startswith("'=")
-    assert row[2].startswith("'=")
+    assert row[3].startswith("'=")
 
 
 def test_repeat_daily_shift_creates_days_and_skips_duplicates(client):
@@ -665,6 +671,44 @@ def test_repeat_weekly_uses_same_weekday_and_rejects_excess_range(client):
         "repeat_mode": "daily", "repeat_until": "2028-06-01",
     })
     assert too_long.status_code == 422
+
+
+def test_split_shift_adds_both_segments_and_rejects_overlap(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    response = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-13T08:00", "end_at": "2026-04-13T13:00",
+        "second_start_at": "2026-04-13T17:00", "second_end_at": "2026-04-13T20:00",
+    })
+    assert response.status_code == 201, response.text
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert report["totals"]["hours"] == "08:00"
+    assert report["shifts"][0]["second_start_at"].startswith("2026-04-13T17:00")
+    overlap = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-14T08:00", "end_at": "2026-04-14T13:00",
+        "second_start_at": "2026-04-14T12:00", "second_end_at": "2026-04-14T15:00",
+    })
+    assert overlap.status_code == 422
+
+
+def test_repeat_custom_days_creates_only_selected_dates(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    payload = {
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-10T08:00", "end_at": "2026-04-10T16:00",
+        "repeat_mode": "custom",
+        "repeat_dates": ["2026-04-10", "2026-04-14", "2026-04-16"],
+    }
+    response = test_client.post("/api/shifts", json=payload)
+    assert response.status_code == 201, response.text
+    assert response.json()["created"] == 3
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert {shift["start_at"][:10] for shift in report["shifts"]} == {"2026-04-10", "2026-04-14", "2026-04-16"}
+    empty = test_client.post("/api/shifts", json={**payload, "repeat_dates": []})
+    assert empty.status_code == 422
 
 
 def test_employee_and_post_are_editable_and_removable(client):
@@ -729,3 +773,267 @@ def test_holiday_minutes_are_interpreted_in_schedule(client):
     assert report["totals"]["holiday_hours"] == "06:00"
     assert report["totals"]["night_hours"] == "08:00"
     assert report["shifts"][0]["holiday_minutes"] == 360
+
+
+def test_initialize_migrates_legacy_shifts_without_losing_rows(tmp_path):
+    db_path = tmp_path / "legacy.sqlite3"
+    legacy = sqlite3.connect(db_path)
+    legacy.executescript(
+        """
+        CREATE TABLE employees (
+            id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+        );
+        CREATE TABLE posts (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, municipality TEXT NOT NULL,
+            province TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+            UNIQUE(name, municipality)
+        );
+        CREATE TABLE shifts (
+            id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, post_id TEXT NOT NULL,
+            start_at TEXT NOT NULL, end_at TEXT NOT NULL, break_start_at TEXT, break_end_at TEXT,
+            break_paid INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'confirmed',
+            source TEXT NOT NULL DEFAULT 'manual', source_label TEXT, created_at TEXT NOT NULL
+        );
+        INSERT INTO employees VALUES ('e1','VS-001','Ana','Vigilante',1,'2026-01-01T00:00');
+        INSERT INTO posts VALUES ('p1','Centro Central','València','Valencia',1,'2026-01-01T00:00');
+        INSERT INTO shifts VALUES ('s1','e1','p1','2026-04-10T08:00','2026-04-10T16:00',NULL,NULL,0,'confirmed','manual',NULL,'2026-04-10T16:01');
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    create_app(db_path)
+
+    conn = connect(db_path)
+    try:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(shifts)")}
+        row = conn.execute("SELECT start_at,end_at,second_start_at,second_end_at FROM shifts WHERE id='s1'").fetchone()
+        post = conn.execute("SELECT code,name,municipality FROM posts WHERE id='p1'").fetchone()
+    finally:
+        conn.close()
+    assert {"second_start_at", "second_end_at"} <= columns
+    assert row["start_at"] == "2026-04-10T08:00"
+    assert row["end_at"] == "2026-04-10T16:00"
+    assert row["second_start_at"] is None and row["second_end_at"] is None
+    assert post["code"] == "CENTRO-CENTRAL"
+    assert post["name"] == "Centro Central" and post["municipality"] == "València"
+
+
+def test_center_code_is_required_from_ui_and_defaults_to_castellon(client):
+    test_client, _ = client
+    created = test_client.post("/api/posts", json={"code": "C-01", "name": "Centro Norte"})
+    assert created.status_code == 201, created.text
+    post = created.json()
+    assert post["code"] == "C-01"
+    assert post["name"] == "Centro Norte"
+    assert post["municipality"] == "Castelló de la Plana"
+    assert post["province"] == "Castellón"
+    duplicate = test_client.post("/api/posts", json={"code": "C-01", "name": "Otro centro"})
+    assert duplicate.status_code == 409
+    updated = test_client.patch(f"/api/posts/{post['id']}", json={"code": "C-02", "name": "Centro Norte 2"})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["code"] == "C-02"
+
+
+def test_free_space_is_subtracted_from_month_and_year_totals(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    for month in (1, 2):
+        response = test_client.post("/api/shifts", json={
+            "employee_id": employee["id"], "post_id": post["id"],
+            "start_at": f"2026-{month:02d}-10T08:00", "end_at": f"2026-{month:02d}-10T20:00",
+            "break_start_at": f"2026-{month:02d}-10T14:00", "break_end_at": f"2026-{month:02d}-10T16:00",
+            "break_paid": False,
+        })
+        assert response.status_code == 201, response.text
+    monthly = test_client.get("/api/reports", params={"year": 2026, "month": 1}).json()
+    annual = test_client.get("/api/reports", params={"year": 2026}).json()
+    assert monthly["totals"]["hours"] == "10:00"
+    assert annual["totals"]["hours"] == "20:00"
+
+
+def test_export_and_reimport_keep_center_code_and_free_space(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    response = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-12T08:00", "end_at": "2026-04-12T20:00",
+        "break_start_at": "2026-04-12T14:00", "break_end_at": "2026-04-12T16:00",
+        "break_paid": False,
+    })
+    assert response.status_code == 201, response.text
+    export = test_client.get("/api/exports/shifts.csv", params={"year": 2026, "month": 4})
+    header = export.text.lstrip("\ufeff").splitlines()[0]
+    assert "ID centro" in header and "Espacio libre desde" in header
+    preview = test_client.post("/api/imports/preview", files={"file": ("cuadrante-2026-04.csv", export.content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["post_id"] == post["id"]
+    assert row["break_start_at"] == "2026-04-12T14:00"
+    assert row["break_end_at"] == "2026-04-12T16:00"
+
+
+def _ods_bytes(rows: list[list[str]]) -> bytes:
+    table_rows = []
+    for row in rows:
+        cells = "".join(
+            f'<table:table-cell office:value-type="string"><text:p>{cell}</text:p></table:table-cell>'
+            for cell in row
+        )
+        table_rows.append(f"<table:table-row>{cells}</table:table-row>")
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<office:document-content '
+        'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">'
+        '<office:body><office:spreadsheet><table:table table:name="Turnos">'
+        + "".join(table_rows)
+        + '</table:table></office:spreadsheet></office:body></office:document-content>'
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.spreadsheet")
+        archive.writestr("content.xml", content)
+    return buffer.getvalue()
+
+
+def test_ods_import_with_fuzzy_headers_and_total_column(client):
+    test_client, _ = client
+    employee, _post = setup_people(client)
+    data = _ods_bytes([
+        ["Nº Empleado", "Vigilante", "Centro de trabajo", "Fecha", "Hora de entrada", "Hora de salida", "TOTAL HORAS MES"],
+        [employee["code"], "Ana Vigilante", "Centro ODS", "10/04/2026", "08:00", "16:00", "160:00"],
+    ])
+    preview = test_client.post("/api/imports/preview", files={"file": ("cuadrante.ods", data, "application/vnd.oasis.opendocument.spreadsheet")})
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["kind"] == "ods"
+    row = body["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_id"] == employee["id"]
+    assert row["start_at"] == "2026-04-10T08:00"
+    assert row["end_at"] == "2026-04-10T16:00"
+    confirmed = test_client.post("/api/imports/confirm", json={"filename": "cuadrante.ods", "source": "ods", "rows": body["rows"]})
+    assert confirmed.status_code == 201, confirmed.text
+    pending = next(item for item in test_client.get("/api/review").json() if item["kind"] == "shift")
+    test_client.post(f"/api/shifts/{pending['id']}/confirm")
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert report["totals"]["hours"] == "08:00"
+
+
+def test_unknown_text_extension_is_detected_by_content(client):
+    test_client, _ = client
+    employee, _post = setup_people(client)
+    content = (
+        "Nº Empleado;Centro de Trabajo;Fecha Servicio;Hora de Entrada;Hora de Salida;Total Horas Mes\n"
+        f"{employee['code']};Centro TXT;10 octubre 2026;08:00;16:00;160:00\n"
+        "TOTAL;;;;;160:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("cuadrante.raro", content, "application/octet-stream")})
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["kind"] == "text"
+    assert len(body["rows"]) == 1
+    assert body["rows"][0]["status"] == "ready", body["rows"][0]["errors"]
+    assert body["rows"][0]["start_at"] == "2026-10-10T08:00"
+    assert body["rows"][0]["end_at"] == "2026-10-10T16:00"
+
+
+def test_pdf_text_fallback_without_detected_table(client):
+    import fitz
+
+    test_client, _ = client
+    employee, _post = setup_people(client)
+    document = fitz.open()
+    page = document.new_page()
+    y = 72
+    for line in [
+        "ID;Centro;Fecha;Entrada;Salida",
+        f"{employee['code']};Centro PDF;10/04/2026;08:00;16:00",
+    ]:
+        page.insert_text((72, y), line, fontsize=9)
+        y += 16
+    data = document.tobytes()
+    document.close()
+    preview = test_client.post("/api/imports/preview", files={"file": ("texto.pdf", data, "application/pdf")})
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["kind"] == "pdf"
+    assert any(row["status"] == "ready" for row in body["rows"]), body["rows"]
+
+
+def test_import_schedule_range_creates_free_space(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    content = (
+        "ID;Vigilante;Centro;Fecha;Horario\n"
+        f"{employee['code']};Ana Vigilante;{post['name']};10/04/2026;08:00 a 14:00 y 17:00 a 20:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("horario.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_id"] == employee["id"]
+    assert row["post_id"] == post["id"]
+    assert row["start_at"] == "2026-04-10T08:00"
+    assert row["end_at"] == "2026-04-10T20:00"
+    assert row["break_start_at"] == "2026-04-10T14:00"
+    assert row["break_end_at"] == "2026-04-10T17:00"
+
+
+def test_import_matches_employee_by_unique_name_without_id(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    content = (
+        "Vigilante;Centro;Fecha;Entrada;Salida\n"
+        f"Ana Vigilante;{post['name']};10/04/2026;08:00;16:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("nombres.txt", content, "text/plain")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_id"] == employee["id"]
+    assert row["employee_code"] == employee["code"]
+
+
+def test_import_splits_composite_employee_and_center_codes(client):
+    test_client, _ = client
+    content = (
+        "ID;Centro;Fecha;Entrada;Salida\n"
+        "VS-777 - Nuevo Vigilante;C-99 - Centro Compuesto;10/04/2026;08:00;16:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("compuestos.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_code"] == "VS-777"
+    assert row["employee_name"] == "Nuevo Vigilante"
+    assert row["post_code"] == "C-99"
+    assert row["post_name"] == "Centro Compuesto"
+    response = test_client.post("/api/imports/confirm", json={"filename": "compuestos.csv", "source": "text", "rows": preview.json()["rows"]})
+    assert response.status_code == 201, response.text
+    employees = test_client.get("/api/employees").json()
+    posts = test_client.get("/api/posts").json()
+    assert any(item["code"] == "VS-777" for item in employees)
+    assert any(item["code"] == "C-99" and item["name"] == "Centro Compuesto" for item in posts)
+
+
+def test_report_filters_by_center_employee_and_year_aggregation(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    other_employee = test_client.post("/api/employees", json={"code": "VS-888", "first_name": "Luis", "last_name": "Nocturno"}).json()
+    other_post = test_client.post("/api/posts", json={"code": "C-88", "name": "Centro Sur"}).json()
+    assert add_shift(test_client, employee, post, start_at="2026-04-10T08:00", end_at="2026-04-10T16:00", break_start_at=None, break_end_at=None).status_code == 201
+    assert add_shift(test_client, other_employee, other_post, start_at="2026-04-11T08:00", end_at="2026-04-11T16:00", break_start_at=None, break_end_at=None).status_code == 201
+    by_post = test_client.get("/api/reports", params={"year": 2026, "month": 4, "post_id": post["id"]}).json()
+    by_employee = test_client.get("/api/reports", params={"year": 2026, "month": 4, "q": "VS-888"}).json()
+    annual = test_client.get("/api/reports", params={"year": 2026, "group_by_employee": "false"}).json()
+    assert by_post["totals"]["hours"] == "08:00"
+    assert {row["post_id"] for row in by_post["shifts"]} == {post["id"]}
+    assert by_employee["totals"]["hours"] == "08:00"
+    assert {row["employee_code"] for row in by_employee["shifts"]} == {"VS-888"}
+    assert annual["totals"]["hours"] == "16:00"
+    assert len(annual["days"]) == 2

@@ -1,7 +1,7 @@
-"""Genera el icono de la app (PNG + ICO) para el iniciador MVSCS.
+"""Genera el icono de la app (PNG + ICO) del Centro de administración.
 
 Uso:  python launcher/build_icons.py
-No requiere dependencias nuevas salvo Pillow (ya usada por el proyecto).
+Requiere Pillow (ya usada por el proyecto para generar recursos).
 """
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
-BG = (11, 18, 32, 255)
-BG2 = (17, 34, 58, 255)
-ACCENT = (56, 189, 248, 255)
-RING = (34, 211, 238, 255)
-WHITE = (241, 245, 249, 255)
+BG = (11, 23, 36, 255)
+BG2 = (16, 42, 58, 255)
+ACCENT = (14, 116, 144, 255)
+RING = (103, 232, 249, 255)
+WHITE = (255, 255, 255, 255)
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
@@ -42,22 +42,16 @@ def centered(draw: ImageDraw.ImageDraw, text: str, fnt: ImageFont.FreeTypeFont, 
 def build_icon(size: int = 1024) -> Image.Image:
     image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=int(size * 0.19), fill=BG)
-    draw.rounded_rectangle((int(size * 0.03), int(size * 0.03), size - int(size * 0.03), size - int(size * 0.03)), radius=int(size * 0.16), outline=BG2, width=int(size * 0.012))
-    # Escudo (seguridad)
-    cx, top, w, h = size / 2, size * 0.16, size * 0.30, size * 0.34
-    shield = [
-        (cx - w / 2, top),
-        (cx + w / 2, top),
-        (cx + w / 2, top + h * 0.55),
-        (cx, top + h),
-        (cx - w / 2, top + h * 0.55),
-    ]
-    draw.polygon(shield, fill=RING)
-    draw.polygon([(cx - w / 2 + size * 0.02, top + size * 0.02), (cx + w / 2 - size * 0.02, top + size * 0.02), (cx + w / 2 - size * 0.02, top + h * 0.5), (cx, top + h - size * 0.03), (cx - w / 2 + size * 0.02, top + h * 0.5)], fill=BG)
-    # Texto
-    centered(draw, "MVSCS", font(FONT_BOLD, int(size * 0.17)), int(size * 0.55), WHITE)
-    centered(draw, "PRIVATE DASHBOARD", font(FONT_REG, int(size * 0.052)), int(size * 0.77), ACCENT, spacing=int(size * 0.006))
+    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=int(size * 0.20), fill=BG)
+    draw.rounded_rectangle((int(size * 0.035), int(size * 0.035), size - int(size * 0.035), size - int(size * 0.035)), radius=int(size * 0.17), outline=BG2, width=int(size * 0.012))
+    # Anillo cian de marca
+    margin = size * 0.20
+    draw.ellipse((margin, margin, size - margin, size - margin), outline=ACCENT, width=int(size * 0.045))
+    # C blanca de Centro
+    centered(draw, "C", font(FONT_BOLD, int(size * 0.42)), int(size * 0.285), WHITE)
+    # Punto cian inferior derecho
+    dot = size * 0.045
+    draw.ellipse((size * 0.71 - dot, size * 0.71 - dot, size * 0.71 + dot, size * 0.71 + dot), fill=RING)
     return image
 
 

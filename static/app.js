@@ -1,6 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = { date: new Date(), mode: 'month', employees: [], posts: [], report: null, review: [], duplicates: [], holidays: [], editingShift: null, editingEmployee: null, editingPost: null, toastTimer: null, excelView: false, selectedShifts: new Set() };
+const state = { date: new Date(), mode: 'month', employees: [], posts: [], report: null, review: [], duplicates: [], holidays: [], editingShift: null, editingEmployee: null, editingPost: null, toastTimer: null, excelView: false, selectedShifts: new Set(), customDays: [], importPreview: null };
 const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDate = (value) => new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'short'}).format(new Date(`${value.slice(0,10)}T12:00:00`)).replace('.', '');
@@ -54,12 +54,12 @@ async function reloadBase() {
   fillSelects(); renderEmployees(); renderPosts(); renderReview(); renderHolidays();
 }
 function fillSelects() {
-  const opts = state.posts.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.municipality)}</option>`).join('');
+  const opts = state.posts.map(p=>`<option value="${esc(p.id)}">${esc(p.code)} · ${esc(p.name)}</option>`).join('');
   ['#post-filter', ...$$('.post-select').map(el=>`#${el.id}`).filter(Boolean)].forEach(selector=>{
     const el=$(selector); if (!el) return; const old=el.value;
-    el.innerHTML='<option value="">Todos los puestos</option>'+opts; if(old)el.value=old;
+    el.innerHTML='<option value="">Todos los centros</option>'+opts; if(old)el.value=old;
   });
-  const shiftPost=$('#shift-post'); shiftPost.innerHTML='<option value="">Selecciona puesto</option>'+opts;
+  const shiftPost=$('#shift-post'); shiftPost.innerHTML='<option value="">Selecciona centro</option>'+opts;
   const shiftEmployee=$('#shift-employee'); shiftEmployee.innerHTML='<option value="">Selecciona empleado</option>'+state.employees.map(e=>`<option value="${esc(e.id)}">${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');
 }
 async function reloadReport(force = false) {
@@ -83,12 +83,13 @@ function renderReport() {
   $('#shift-count').textContent=`${visibleShiftCount} turno${visibleShiftCount===1?'':'s'} confirmado${visibleShiftCount===1?'':'s'}`;
   $('#activity-summary').textContent=state.mode==='year'?`${(report.days||[]).length} días con actividad · ${visibleShiftCount} turnos`:`${visibleShiftCount} ${visibleShiftCount===1?'registro':'registros'} · ${report.employees.length} empleado${report.employees.length===1?'':'s'}`;
   const body=$('#activity-body');
-  const displayShifts=state.mode==='year'?(report.days||[]).map(day=>({id:day.date,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los puestos',municipality:'Comunitat Valenciana',province:'',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
+  const dailyMode=state.mode==='year';
+  const displayShifts=dailyMode?(report.days||[]).map(day=>({id:day.date,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los centros',post_code:'Agregado diario',municipality:'Comunitat Valenciana',province:'',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
   body.innerHTML=displayShifts.slice(0,250).map(s=>{
     const duration=toHHMM(s.minutes); const classes=[];
     if(s.night_minutes)classes.push(`<span class="pill pill-night">☾ ${toHHMM(s.night_minutes)}</span>`);
     if(s.holiday_minutes)classes.push(`<span class="pill pill-holiday">✳ ${toHHMM(s.holiday_minutes)}</span>`);
-    return `<tr><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)} · ${esc(s.province)}</small></span></td><td><span class="date-cell">${esc(fmtDate(s.start_at))}<small>${esc(new Intl.DateTimeFormat('es-ES',{weekday:'short'}).format(new Date(`${s.start_at.slice(0,10)}T12:00:00`)))}</small></span></td><td><span class="time-cell">${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}</span></td><td><span class="duration-cell">${toHHMM(s.minutes)}</span></td><td>${s.night_minutes?`<span class="pill pill-night">${toHHMM(s.night_minutes)}</span>`:'<span class="pill pill-muted">—</span>'}</td><td>${s.holiday_minutes?`<span class="pill pill-holiday">${toHHMM(s.holiday_minutes)}</span>`:'<span class="pill pill-muted">—</span>'}</td><td><span class="pill pill-confirmed">● Confirmado</span></td></tr>`;
+    return `<tr><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.post_code||s.municipality||"")}</small></span></td><td><span class="date-cell">${esc(fmtDate(s.start_at))}<small>${esc(new Intl.DateTimeFormat('es-ES',{weekday:'short'}).format(new Date(`${s.start_at.slice(0,10)}T12:00:00`)))}</small></span></td><td><span class="time-cell">${dailyMode?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td><span class="duration-cell">${toHHMM(s.minutes)}</span></td><td>${s.night_minutes?`<span class="pill pill-night">${toHHMM(s.night_minutes)}</span>`:'<span class="pill pill-muted">—</span>'}</td><td>${s.holiday_minutes?`<span class="pill pill-holiday">${toHHMM(s.holiday_minutes)}</span>`:'<span class="pill pill-muted">—</span>'}</td><td>${dailyMode?'<span class="pill pill-muted">Agregado</span>':'<span class="pill pill-confirmed">● Confirmado</span>'}</td></tr>`;
   }).join('');
   const empty=displayShifts.length===0; $('#activity-empty').classList.toggle('hidden',!empty); $('#activity-body').closest('.table-scroll').classList.toggle('hidden',empty); $('.table-footer').classList.toggle('hidden',empty);
   renderHolidays();
@@ -97,18 +98,18 @@ function renderReport() {
 function renderSummaries(summaries){
   const card=$('#summaries-card'), heading=$('#summaries-heading'); if(!card)return;
   const rows=summaries||[]; card.classList.toggle('hidden',!rows.length); heading.classList.toggle('hidden',!rows.length);
-  $('#summaries-body').innerHTML=rows.map(s=>`<tr><td><div class="employee-cell"><span class="employee-name"><strong>${esc(s.name||s.employee_code)}</strong><small>${esc(s.employee_code)}</small></span></div></td><td>${esc(s.month)}</td><td><strong class="duration-cell">${esc(s.hours)}</strong></td><td><span class="pill pill-muted">${esc(s.source_label||'importado')}</span></td><td><button class="text-button" data-delete-summary="${esc(s.id)}">Eliminar</button></td></tr>`).join('');
+  $('#summaries-body').innerHTML=rows.map(s=>`<tr><td><div class="employee-cell"><span class="employee-name"><strong>${esc(s.name||s.employee_code)}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name||'Sin centro')}</strong><small>${esc(s.post_code||'')}</small></span></td><td>${esc(s.month)}</td><td><strong class="duration-cell">${esc(s.hours)}</strong></td><td><span class="pill pill-muted">${esc(s.source_label||'importado')}</span></td><td><button class="text-button" data-delete-summary="${esc(s.id)}">Eliminar</button></td></tr>`).join('');
 }
 function toHHMM(minutes) { return `${String(Math.floor((minutes||0)/60)).padStart(2,'0')}:${String((minutes||0)%60).padStart(2,'0')}`; }
 function renderPostsSummary(posts,total) {
   const root=$('#post-summary');
   if(!posts.length){root.innerHTML='<p class="subheading">Todavía no hay datos para mostrar.</p>';return;}
-  root.innerHTML=posts.slice(0,5).map(p=>`<div><div class="post-row-head"><span>${esc(p.name)} <span style="color:#5f6b78">· ${esc(p.municipality)}</span></span><strong>${esc(p.hours)}</strong></div><div class="progress-track"><div class="progress-value" style="width:${total?Math.max(3,Math.round(100*p.minutes/total)):0}%"></div></div></div>`).join('');
+  root.innerHTML=posts.slice(0,5).map(p=>`<div><div class="post-row-head"><span>${esc(p.code)} <span style="color:#5f6b78">· ${esc(p.name)}</span></span><strong>${esc(p.hours)}</strong></div><div class="progress-track"><div class="progress-value" style="width:${total?Math.max(3,Math.round(100*p.minutes/total)):0}%"></div></div></div>`).join('');
 }
 function renderShiftTable(report) {
   const body=$('#shifts-body');
-  const rows=state.mode==='year'?(report.days||[]).map(day=>({id:null,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los puestos',municipality:'Comunitat Valenciana',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
-  body.innerHTML=rows.slice(0,1000).map(s=>`<tr data-shift-row="${esc(s.id)}"><td class="check-col">${s.id?`<input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno de ${esc(`${s.first_name} ${s.last_name}`.trim())}">`:''}</td><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)}</small></span></td><td>${calendarDateCell(s.start_at)}${state.mode==='month'?holidayTag(shiftHolidayNames(s)):''}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' · pagada':''}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<div class="row-actions"><button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button><button class="shift-edit" data-review-shift="${esc(s.id)}">Revisión</button></div>`}</td></tr>`).join('');
+  const rows=state.mode==='year'?(report.days||[]).map(day=>({id:null,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los centros',municipality:'Comunitat Valenciana',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
+  body.innerHTML=rows.slice(0,1000).map(s=>`<tr data-shift-row="${esc(s.id)}"><td class="check-col">${s.id?`<input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno de ${esc(`${s.first_name} ${s.last_name}`.trim())}">`:''}</td><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.post_code||s.municipality||"")}</small></span></td><td>${calendarDateCell(s.start_at)}${state.mode==='month'?holidayTag(shiftHolidayNames(s)):''}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at&&!s.break_paid?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<div class="row-actions"><button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button><button class="shift-edit" data-review-shift="${esc(s.id)}">Revisión</button></div>`}</td></tr>`).join('');
   $('#shifts-empty').classList.toggle('hidden',rows.length>0);
   $('#shifts-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
   renderExcelTable(report);
@@ -119,8 +120,8 @@ function renderExcelTable(report) {
   const body=$('#excel-body'); if(!body)return;
   const rows=state.mode==='month'?report.shifts:[];
   const employeeOptions=(selected)=>{const known=state.employees.some(e=>e.id===selected);return (selected&&!known?`<option value="${esc(selected)}" selected>ID desconocido</option>`:'')+state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');};
-  const postOptions=(selected)=>{const known=state.posts.some(p=>p.id===selected);return (selected&&!known?`<option value="${esc(selected)}" selected>Puesto desconocido</option>`:'')+state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('');};
-  body.innerHTML=rows.map(s=>`<tr data-shift-row="${esc(s.id)}" data-shift-id="${esc(s.id)}"><td class="check-col"><input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno"></td><td><div class="excel-date"><input data-field="date" type="date" value="${esc(s.start_at.slice(0,10))}"><small class="date-weekday">${esc(commentedDate(s.start_at))}</small>${holidayTag(shiftHolidayNames(s))}</div></td><td><select data-field="employee_id">${employeeOptions(s.employee_id)}</select></td><td><select data-field="post_id">${postOptions(s.post_id)}</select></td><td><div class="excel-time-range"><input class="excel-time-input" data-field="start_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.start_at.slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="end_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.end_at.slice(11,16))}"></div></td><td><div class="excel-break"><div class="excel-time-range"><input class="excel-time-input" data-field="break_start_time" type="text" inputmode="numeric" maxlength="5" value="${esc((s.break_start_at||'').slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="break_end_time" type="text" inputmode="numeric" maxlength="5" value="${esc((s.break_end_at||'').slice(11,16))}"></div><select data-field="break_paid"><option value="false" ${!s.break_paid?'selected':''}>No pagada</option><option value="true" ${s.break_paid?'selected':''}>Pagada</option></select></div></td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td><button class="shift-edit" type="button" data-review-shift="${esc(s.id)}">Revisión</button></td></tr>`).join('');
+  const postOptions=(selected)=>{const known=state.posts.some(p=>p.id===selected);return (selected&&!known?`<option value="${esc(selected)}" selected>Centro desconocido</option>`:'')+state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.code)} · ${esc(p.name)}</option>`).join('');};
+  body.innerHTML=rows.map(s=>`<tr data-shift-row="${esc(s.id)}" data-shift-id="${esc(s.id)}"><td class="check-col"><input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno"></td><td><div class="excel-date"><input data-field="date" name="date" type="date" value="${esc(s.start_at.slice(0,10))}"><small class="date-weekday">${esc(commentedDate(s.start_at))}</small>${holidayTag(shiftHolidayNames(s))}</div></td><td><select data-field="employee_id" name="employee_id">${employeeOptions(s.employee_id)}</select></td><td><select data-field="post_id" name="post_id">${postOptions(s.post_id)}</select></td><td><div class="excel-time-range"><input class="excel-time-input" data-field="start_time" name="start_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.start_at.slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="end_time" name="end_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.end_at.slice(11,16))}"></div></td><td><div class="excel-time-range"><input class="excel-time-input" data-field="free_start_time" name="free_start_time" type="text" inputmode="numeric" maxlength="5" value="${esc(((s.break_start_at&&!s.break_paid? s.break_start_at:'')||'').slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="free_end_time" name="free_end_time" type="text" inputmode="numeric" maxlength="5" value="${esc(((s.break_end_at&&!s.break_paid? s.break_end_at:'')||'').slice(11,16))}"></div></td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td><button class="shift-edit" type="button" data-review-shift="${esc(s.id)}">Revisión</button></td></tr>`).join('');
   $('#excel-empty').classList.toggle('hidden',rows.length>0);
   $('#excel-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
 }
@@ -162,12 +163,14 @@ async function saveExcelChanges() {
     const day=value('date');const startTime=normalizeTimeText(value('start_time'));const endTime=normalizeTimeText(value('end_time'));
     if(!day||!startTime||!endTime){errors.push('Fecha u horario incompletos');continue;}
     const startAt=`${day}T${startTime}`;
-    const endAt=endTime<=startTime?`${nextDayIso(day)}T${endTime}`:`${day}T${endTime}`;
-    const breakStartTime=normalizeTimeText(value('break_start_time'));const breakEndTime=normalizeTimeText(value('break_end_time'));
-    if(Boolean(breakStartTime)!==Boolean(breakEndTime)){errors.push('Indica inicio y fin de pausa');continue;}
-    const breakStartAt=breakStartTime?`${day}T${breakStartTime}`:null;
-    const breakEndAt=breakEndTime?(breakEndTime<=breakStartTime?`${nextDayIso(day)}T${breakEndTime}`:`${day}T${breakEndTime}`):null;
-    const payload={employee_id:value('employee_id'),post_id:value('post_id'),start_at:startAt,end_at:endAt,break_start_at:breakStartAt,break_end_at:breakEndAt,break_paid:breakStartAt?value('break_paid')==='true':false};
+    const endDay=endTime<=startTime?nextDayIso(day):day;
+    const endAt=`${endDay}T${endTime}`;
+    const freeStartTime=normalizeTimeText(value('free_start_time'));const freeEndTime=normalizeTimeText(value('free_end_time'));
+    if(Boolean(freeStartTime)!==Boolean(freeEndTime)){errors.push('Indica desde y hasta del espacio libre');continue;}
+    const freeBaseDay=freeStartTime&&freeStartTime<startTime?endDay:day;
+    const freeStartAt=freeStartTime?`${freeBaseDay}T${freeStartTime}`:null;
+    const freeEndAt=freeEndTime?(freeEndTime<=freeStartTime?`${nextDayIso(freeBaseDay)}T${freeEndTime}`:`${freeBaseDay}T${freeEndTime}`):null;
+    const payload={employee_id:value('employee_id'),post_id:value('post_id'),start_at:startAt,end_at:endAt,break_start_at:freeStartAt,break_end_at:freeEndAt,break_paid:false};
     try{await api(`/api/shifts/${row.dataset.shiftId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
     catch(error){errors.push(error.message);}
   }
@@ -188,7 +191,7 @@ function renderEmployees() {
   }
 }
 function renderPosts() {
-  $('#post-grid').innerHTML=state.posts.map(p=>`<article class="post-card"><div class="post-card-top"><span class="stat-icon icon-green">⌖</span><span class="employee-name"><strong>${esc(p.name)}</strong><small>Puesto de vigilancia</small></span></div><p class="post-location">${esc(p.municipality)} · ${esc(p.province)}</p><div class="post-card-foot">Festivos aplicados por municipio · Calendario manual</div><div class="card-actions"><button class="text-button" data-edit-post="${esc(p.id)}">Editar</button><button class="text-button danger" data-delete-post="${esc(p.id)}">Eliminar</button></div></article>`).join('') || '<div class="table-empty"><strong>Aún no hay puestos</strong><small>Añade una instalación para empezar.</small></div>';
+  $('#post-grid').innerHTML=state.posts.map(p=>`<article class="post-card"><div class="post-card-top"><span class="stat-icon icon-green">⌖</span><span class="employee-name"><strong>${esc(p.name)}</strong><small>${esc(p.code)} · Centro de trabajo</small></span></div><p class="post-location">Vigilante de seguridad · Castellón</p><div class="post-card-foot">Festivos por municipio · Calendario manual</div><div class="card-actions"><button class="text-button" data-edit-post="${esc(p.id)}">Editar</button><button class="text-button danger" data-delete-post="${esc(p.id)}">Eliminar</button></div></article>`).join('') || '<div class="table-empty"><strong>Aún no hay centros</strong><small>Añade un centro para empezar.</small></div>';
 }
 async function reloadHolidays(){state.holidays=await api('/api/holidays');renderHolidays();}
 function todayIso(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
@@ -198,7 +201,7 @@ function renderSidebarHolidays(){
   const root=$('#sidebar-holidays'); if(!root)return;
   const all=upcomingHolidays();const rows=all.slice(0,4);
   const count=$('#sidebar-holidays-count');if(count)count.textContent=String(all.length);
-  root.innerHTML=rows.map(h=>{const d=holidayDayMonth(h.date);return `<a class="sidebar-holiday" href="#puestos" data-holiday-link><span class="sidebar-holiday-date"><strong>${d.day}</strong><small>${esc(d.month)}</small></span><span class="sidebar-holiday-text"><strong>${esc(h.name)}</strong><small>${d.year} · ${esc(d.weekday)}</small></span></a>`;}).join('')||'<p class="sidebar-holiday-empty">Sin festivos próximos.</p>';
+  root.innerHTML=rows.map(h=>{const d=holidayDayMonth(h.date);return `<a class="sidebar-holiday" href="#centros" data-holiday-link><span class="sidebar-holiday-date"><strong>${d.day}</strong><small>${esc(d.month)}</small></span><span class="sidebar-holiday-text"><strong>${esc(h.name)}</strong><small>${d.year} · ${esc(d.weekday)}</small></span></a>`;}).join('')||'<p class="sidebar-holiday-empty">Sin festivos próximos.</p>';
 }
 function renderHolidays(){
   const root=$('#holiday-list');if(!root)return;
@@ -214,6 +217,23 @@ function renderHolidays(){
   renderSidebarHolidays();
 }
 
+function reviewChips(raw){
+  const chips=[];
+  const add=(label,value)=>{if(value)chips.push(`<span class="review-chip"><small>${esc(label)}</small><strong>${esc(value)}</strong></span>`)};
+  add('Empleado',raw.employee_label||raw.employee_code||raw.employee_name);
+  add('Centro',raw.post_label||raw.post_name||raw.post_code);
+  if(raw.start_at||raw.end_at)add('Horario',`${fmtTime(raw.start_at)} – ${fmtTime(raw.end_at)}`);
+  if(raw.break_start_at&&!raw.break_paid)add('Espacio libre',`${fmtTime(raw.break_start_at)} – ${fmtTime(raw.break_end_at)}`);
+  if(raw.month)add('Mes',raw.month);
+  if(raw.total_hours||raw.hours)add('Total',raw.total_hours||raw.hours);
+  return chips.length?`<div class="review-detected">${chips.join('')}</div>`:'';
+}
+function reviewRawDetails(raw){
+  const skip=new Set(['kind','line','status','errors','duplicate_of','post_label','employee_label','start_at','end_at','break_start_at','break_end_at']);
+  const entries=Object.entries(raw).filter(([key,value])=>!skip.has(key)&&value!==null&&value!==undefined&&String(value).trim()!=='').slice(0,24);
+  if(!entries.length)return '';
+  return `<details class="review-raw"><summary>Ver fila original y detección</summary><dl>${entries.map(([key,value])=>`<div><dt>${esc(key)}</dt><dd>${esc(String(value))}</dd></div>`).join('')}</dl></details>`;
+}
 function renderReview() {
   const root=$('#review-list'); const items=state.review||[];
   $('#review-count').textContent=String(items.length);
@@ -221,17 +241,19 @@ function renderReview() {
   root.innerHTML=items.map(item=>{
     if(item.kind==='shift'){
       const s=item.shift;
-      return `<article class="review-card"><div class="review-card-head"><div class="review-source"><strong>${esc(s.employee_code)} · ${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.source_label||'Importación CSV')} · ${esc(s.post_name)} · ${esc(s.municipality)} · ${esc(s.start_at.slice(0,10))} · ${esc(fmtTime(s.start_at))}–${esc(fmtTime(s.end_at))}${s.break_start_at?` · pausa ${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' pagada':''}`:''}</small></div><span class="pill pill-pending">Pendiente de confirmar</span></div><div class="review-card-actions"><button class="button button-secondary" data-discard-shift="${esc(s.id)}">Descartar</button><button class="button button-secondary" data-edit-pending="${esc(s.id)}">Editar</button><button class="button button-primary" data-confirm-shift="${esc(s.id)}">Confirmar turno</button></div></article>`;
+      return `<article class="review-card"><div class="review-card-head"><div class="review-source"><strong>${esc(s.employee_code)} · ${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.source_label||'Importación')} · ${esc(s.post_name)} · ${esc(s.post_code||'')} · ${esc(s.start_at.slice(0,10))} · ${esc(fmtTime(s.start_at))}–${esc(fmtTime(s.end_at))}${s.break_start_at&&!s.break_paid?` · libre ${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}`:''}</small></div><span class="pill pill-pending">Pendiente de confirmar</span></div><div class="review-card-actions"><button class="button button-secondary" data-discard-shift="${esc(s.id)}">Descartar</button><button class="button button-secondary" data-edit-pending="${esc(s.id)}">Editar</button><button class="button button-primary" data-confirm-shift="${esc(s.id)}">Confirmar turno</button></div></article>`;
     }
     const raw=item.raw||{};
     if(raw.kind==='summary'){
       const selected=raw.employee_id||(state.employees.find(e=>e.code===raw.employee_code)?.id||'');
-      return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(raw.employee_label||raw.employee_code||'Resumen mensual')}</strong><small>Resumen mensual · ${esc(raw.post_name||'Sin puesto')} · ${esc(raw.municipality||'')}</small></div><span class="pill pill-pending">Resumen mensual</span></div><div class="review-errors">${(item.errors||[]).map(esc).join('<br>')}</div><div class="review-fields"><label>Empleado<select data-field="summary_employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Mes<input data-field="summary_month" autocomplete="off" placeholder="2026-07" value="${esc(raw.month||'')}"></label><label>Horas totales<input data-field="summary_hours" autocomplete="off" placeholder="200 o 200:00" value="${esc(raw.hours||'')}"></label></div><div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-summary="${esc(item.id)}">Guardar resumen</button></div></article>`;
+      return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(raw.employee_label||raw.employee_code||'Resumen mensual')}</strong><small>Resumen mensual · ${esc(raw.post_name||'Sin centro')} · ${esc(raw.municipality||'')}</small></div><span class="pill pill-pending">Resumen mensual</span></div>${reviewChips(raw)}<div class="review-errors">${(item.errors||[]).map(error=>`<span class="review-error-chip">${esc(error)}</span>`).join('')}</div><div class="review-fields"><label>Empleado<select data-field="summary_employee_id" name="summary_employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Mes<input data-field="summary_month" name="summary_month" autocomplete="off" placeholder="2026-07" value="${esc(raw.month||'')}"></label><label>Horas totales<input data-field="summary_hours" name="summary_hours" autocomplete="off" placeholder="200 o 200:00" value="${esc(raw.hours||'')}"></label></div><div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-summary="${esc(item.id)}">Guardar resumen</button></div></article>`;
     }
     const row=raw;
     const emp=state.employees.find(e=>e.id===row.employee_id);
     const post=state.posts.find(p=>p.id===row.post_id);
-    return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(item.source_label)}</strong><small>La fila necesita que completes o corrijas los campos.</small></div><span class="pill pill-pending">Revisión necesaria</span></div><div class="review-errors">${(item.errors||[]).map(esc).join('<br>')}</div><div class="review-fields"><label>Empleado<select data-field="employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===row.employee_id?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Puesto<select data-field="post_id"><option value="">Seleccionar</option>${state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===row.post_id?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('')}</select></label><label>Entrada<input data-field="start_at" type="datetime-local" autocomplete="off" value="${esc(row.start_at||'')}"></label><label>Salida<input data-field="end_at" type="datetime-local" autocomplete="off" value="${esc(row.end_at||'')}"></label><label>Inicio pausa<input data-field="break_start_at" type="datetime-local" autocomplete="off" value="${esc(row.break_start_at||'')}"></label><label>Fin pausa<input data-field="break_end_at" type="datetime-local" autocomplete="off" value="${esc(row.break_end_at||'')}"></label><label>Pausa remunerada<select data-field="break_paid"><option value="false" ${row.break_paid===false?'selected':''}>No</option><option value="true" ${row.break_paid===true?'selected':''}>Sí</option></select></label></div><div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-review="${esc(item.id)}">Corregir y confirmar</button></div></article>`;
+    const selectedEmployee=row.employee_id||state.employees.find(e=>e.code===row.employee_code)?.id||'';
+    const selectedPost=row.post_id||state.posts.find(p=>p.code===row.post_code)?.id||'';
+    return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(item.source_label)}</strong><small>Revisa y completa los datos marcados; la previsualización no ha escrito nada.</small></div><span class="pill pill-pending">Revisión necesaria</span></div>${reviewChips(row)}<div class="review-errors">${(item.errors||[]).map(error=>`<span class="review-error-chip">${esc(error)}</span>`).join('')}</div><div class="review-fields"><label>Empleado<select data-field="employee_id" name="employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selectedEmployee?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Centro<select data-field="post_id" name="post_id"><option value="">Seleccionar</option>${state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selectedPost?'selected':''}>${esc(p.code)} · ${esc(p.name)}</option>`).join('')}</select></label><label>Entrada<input data-field="start_at" name="start_at" type="datetime-local" autocomplete="off" value="${esc((row.start_at||'').slice(0,16))}"></label><label>Salida<input data-field="end_at" name="end_at" type="datetime-local" autocomplete="off" value="${esc((row.end_at||'').slice(0,16))}"></label><label>Espacio libre desde<input data-field="free_start_at" name="free_start_at" type="datetime-local" autocomplete="off" value="${esc((row.break_start_at&&!row.break_paid?row.break_start_at:'').slice(0,16))}"></label><label>Espacio libre hasta<input data-field="free_end_at" name="free_end_at" type="datetime-local" autocomplete="off" value="${esc((row.break_end_at&&!row.break_paid?row.break_end_at:'').slice(0,16))}"></label></div>${reviewRawDetails(row)}<div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-review="${esc(item.id)}">Corregir y confirmar</button></div></article>`;
   }).join('');
 }
 async function reloadReview() { [state.review,state.duplicates]=await Promise.all([api('/api/review'),api('/api/duplicates')]); renderReview(); renderDuplicates(); }
@@ -246,58 +268,89 @@ async function loadAll() { setMonthLabels();  await reloadBase(); await reloadRe
 function openDialog(id){const dialog=$(id);dialog.showModal();}
 function closeDialogs(){ $$('dialog').forEach(d=>d.close()); }
 function navigate(view){
-  const aliases={inicio:'overview',cuadrante:'shifts',empleados:'employees',puestos:'posts',revision:'review'};
+  const aliases={inicio:'overview',cuadrante:'shifts',empleados:'employees',centros:'posts',puestos:'posts',revision:'review'};
   view=aliases[view]||view;
   const valid=['overview','shifts','employees','posts','review'];
   if(!valid.includes(view))return;
   $$('[data-page]').forEach(section=>section.classList.toggle('hidden',section.dataset.page!==view));
   $$('.nav-item').forEach(link=>link.classList.toggle('active',link.dataset.view===view));
-  const labels={overview:'Resumen',shifts:'Cuadrante',employees:'Empleados',posts:'Puestos',review:'Por revisar'};
-  $('#breadcrumb-current').textContent=labels[view]; history.replaceState(null,'',`#${view==='overview'?'inicio':view}`);
+  const labels={overview:'Resumen',shifts:'Cuadrante',employees:'Empleados',posts:'Centros',review:'Por revisar'};
+  $('#breadcrumb-current').textContent=labels[view]; history.replaceState(null,'',`#${view==='overview'?'inicio':view==='posts'?'centros':view==='review'?'revision':view}`);
   $('#sidebar').classList.remove('open');
   if(view==='review')reloadReview();
 }
 function csvEscape(v){return `"${String(v??'').replaceAll('"','""')}"`;}
 function exportCsv(){
   if(!state.report)return;
-  const columns=['ID empleado','Empleado','Puesto','Municipio','Provincia','Entrada','Salida','Inicio pausa','Fin pausa','Pausa remunerada','Horas trabajadas HH:MM','Horas nocturnas HH:MM','Horas festivas HH:MM'];
-  const lines=[columns.map(csvEscape).join(';'),...state.report.shifts.map(s=>[s.employee_code,`${s.first_name} ${s.last_name}`.trim(),s.post_name,s.municipality,s.province,s.start_at,s.end_at,s.break_start_at||'',s.break_end_at||'',s.break_paid?'Sí':'No',toHHMM(s.minutes),toHHMM(s.night_minutes),toHHMM(s.holiday_minutes)].map(csvEscape).join(';'))];
+  const columns=['ID empleado','Empleado','ID centro','Centro','Entrada','Salida','Espacio libre desde','Espacio libre hasta','Horas trabajadas HH:MM','Horas nocturnas HH:MM','Horas festivas HH:MM'];
+  const lines=[columns.map(csvEscape).join(';'),...state.report.shifts.map(s=>[s.employee_code,`${s.first_name} ${s.last_name}`.trim(),s.post_code||'',s.post_name,s.start_at,s.end_at,(s.break_start_at&&!s.break_paid?s.break_start_at:''),(s.break_end_at&&!s.break_paid?s.break_end_at:''),toHHMM(s.minutes),toHHMM(s.night_minutes),toHHMM(s.holiday_minutes)].map(csvEscape).join(';'))];
   const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`cuadrante-${state.date.getFullYear()}-${String(state.date.getMonth()+1).padStart(2,'0')}.csv`;a.click();URL.revokeObjectURL(a.href);
 }
 async function previewAndImport(file){
   if(!file)return;
   const form=new FormData();form.append('file',file);
-  try{const preview=await api('/api/imports/preview',{method:'POST',body:form});
-    const rows=preview.rows.map(row=>({...row,break_paid:row.break_paid??false}));
-    const result=await api('/api/imports/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows,filename:preview.filename,source:preview.kind||'csv'})});
-    await reloadBase(); await reloadReview(); await reloadReport();
+  try{
+    const preview=await api('/api/imports/preview',{method:'POST',body:form});
+    state.importPreview=preview;
+    const summaries=preview.rows.filter(row=>row.kind==='summary').length;
+    const ready=preview.ready||0, pending=preview.pending||0;
+    $('#import-dialog-summary').textContent=`${preview.filename} · ${preview.count} fila${preview.count===1?'':'s'} · ${ready} lista${ready===1?'':'s'} · ${pending} con incidencias${summaries?` · ${summaries} resumen${summaries===1?'':'es'}`:''}.`;
+    const sample=preview.rows.slice(0,7).map(row=>{
+      if(row.kind==='summary')return `<div class="import-preview-row"><span class="import-preview-main"><strong>${esc(row.employee_label||row.employee_code||'Empleado')}</strong><small>Resumen mensual · ${esc(row.month||'')}</small></span><span class="pill pill-muted">${esc(row.hours||'')}</span></div>`;
+      const status=row.status==='ready'?'<span class="pill pill-confirmed">Lista</span>':'<span class="pill pill-pending">Revisar</span>';
+      return `<div class="import-preview-row"><span class="import-preview-main"><strong>${esc(row.employee_label||row.employee_code||'Empleado')}</strong><small>${esc(row.post_label||row.post_name||'Centro')} · ${esc((row.start_at||'').slice(0,10))} · ${esc(fmtTime(row.start_at))}–${esc(fmtTime(row.end_at))}</small></span>${status}</div>`;
+    }).join('');
+    $('#import-dialog-sample').innerHTML=sample+(preview.rows.length>7?`<div class="import-preview-more">+ ${preview.rows.length-7} fila(s) más</div>`:'');
+    openDialog('#import-dialog');
+  }catch(error){toast(error.message||'No se pudo importar el archivo.');}
+}
+async function confirmImportPreview(){
+  const preview=state.importPreview; if(!preview)return;
+  try{
+    const result=await api('/api/imports/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:preview.rows,filename:preview.filename,source:preview.kind||'text'})});
+    state.importPreview=null; closeDialogs(); await reloadBase(); await reloadReview(); await reloadReport();
     const parts=[];
     if(result.pending)parts.push(`${result.pending} turno(s) pendiente(s) de confirmación`);
     if(result.summaries)parts.push(`${result.summaries} resumen(es) mensual(es) guardado(s)`);
     if(result.needs_review)parts.push(`${result.needs_review} fila(s) requieren corrección`);
     toast(parts.length?parts.join('; ')+'.':'Importación completada sin cambios.');
     if(result.needs_review)navigate('review');
-  }catch(error){toast(error.message||'No se pudo importar el archivo.');}
+  }catch(error){toast(error.message||'No se pudo confirmar la importación.');}
 }
+$('#import-confirm').addEventListener('click',confirmImportPreview);
 function localInputDateTime(dateObj,hour,minute='00') { return `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}T${hour}:${minute}`; }
 function openShift(prefill={}){
   state.editingShift=prefill.id||null;$('#shift-form').reset();clearError($('#shift-error'));fillSelects();
   $('#shift-dialog h2').textContent=state.editingShift?'Editar turno':'Registrar turno';
   $('#shift-form button[type="submit"]').textContent=state.editingShift?'Guardar cambios':'Guardar turno';
-  $('#break-paid-label')?.classList.toggle('hidden',!prefill.hasBreak && !prefill.break_start_at);
   const d=prefill.date?new Date(`${prefill.date}T12:00:00`):new Date();
   $('#shift-start').value=prefill.start||localInputDateTime(d,'08','00');
   const endDate=new Date(d); if(prefill.startHour===22)endDate.setDate(endDate.getDate()+1);
   $('#shift-end').value=prefill.end||localInputDateTime(endDate,prefill.startHour===22?'06':'16','00');
   if(prefill.employee)$('#shift-employee').value=prefill.employee;
   if(prefill.post)$('#shift-post').value=prefill.post;
-  if(prefill.break_start_at){$('#break-start').value=prefill.break_start_at.slice(0,16);$('#break-end').value=prefill.break_end_at.slice(0,16);$('#break-paid').value=String(Boolean(prefill.break_paid));$('#break-paid-label').classList.remove('hidden');}
-  $('#shift-repeat').value='none';$('#shift-repeat-until').value='';$('#repeat-until-wrap').classList.add('hidden');
+  $('#free-start').value=prefill.break_start_at&&!prefill.break_paid?prefill.break_start_at.slice(0,16):'';
+  $('#free-end').value=prefill.break_end_at&&!prefill.break_paid?prefill.break_end_at.slice(0,16):'';
+  state.customDays=[];renderCustomDays();$('#shift-custom-date').value='';
+  $('#shift-repeat').value='none';$('#shift-repeat-until').value='';$('#repeat-until-wrap').classList.add('hidden');$('#custom-days-wrap').classList.add('hidden');
   $('#repeat-control').classList.toggle('hidden',Boolean(state.editingShift));
   updateRepeatHint();updateShiftHolidayHint();
   openDialog('#shift-dialog');
 }
-$('#menu-toggle').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
+const sidebarCollapse=$('#sidebar-collapse');
+const collapseQuery=window.matchMedia('(max-width:800px)');
+function sidebarIsCollapsed(){return document.documentElement.classList.contains('sidebar-collapsed');}
+function setSidebarCollapsed(collapsed,persist=true){
+  document.documentElement.classList.toggle('sidebar-collapsed',collapsed);
+  const label=collapsed?'Expandir menú lateral':'Comprimir menú lateral';
+  if(sidebarCollapse){sidebarCollapse.setAttribute('aria-expanded',String(!collapsed));sidebarCollapse.setAttribute('title',label);const text=sidebarCollapse.querySelector('.collapse-label');const chevron=sidebarCollapse.querySelector('.collapse-chevron');if(text)text.textContent=collapsed?'Expandir menú':'Comprimir menú';if(chevron)chevron.textContent=collapsed?'›':'‹';}
+  $('#menu-toggle')?.setAttribute('aria-expanded',String(!collapsed));
+  if(persist){try{localStorage.setItem('centro-sidebar-collapsed',collapsed?'1':'0')}catch(e){}}
+}
+setSidebarCollapsed(sidebarIsCollapsed(),false);
+sidebarCollapse?.addEventListener('click',()=>setSidebarCollapsed(!sidebarIsCollapsed()));
+$('#menu-toggle').addEventListener('click',()=>{if(collapseQuery.matches){const sidebar=$('#sidebar');const open=sidebar.classList.toggle('open');$('#menu-toggle').setAttribute('aria-expanded',String(open));}else{setSidebarCollapsed(!sidebarIsCollapsed());}});
+collapseQuery.addEventListener?.('change',()=>{if(!collapseQuery.matches){$('#sidebar').classList.remove('open');$('#menu-toggle').setAttribute('aria-expanded',String(!sidebarIsCollapsed()));}});
 $$('.nav-item').forEach(link=>link.addEventListener('click',e=>{e.preventDefault();navigate(link.dataset.view)}));
 $$('[data-navigate]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.navigate)));
 $$('[data-open-shift]').forEach(button=>button.addEventListener('click',()=>openShift()));
@@ -309,6 +362,8 @@ $('#next-month').addEventListener('click',async()=>{stepPeriod(1);await reloadBa
 $$('[data-month-step]').forEach(button=>button.addEventListener('click',async()=>{stepPeriod(Number(button.dataset.monthStep));await reloadBase();await reloadReport()}));
 $$('#period-mode,.period-select').forEach(select=>select?.addEventListener('change',async()=>{state.mode=select.value;$$('#period-mode,.period-select').forEach(item=>{if(item)item.value=state.mode});await reloadReport()}));
 $('#post-filter').addEventListener('change',reloadReport);
+$('#clear-filters').addEventListener('click',()=>{$('#post-filter').value='';$('#employee-search').value='';$$('.post-select').forEach(el=>el.value='');reloadReport()});
+document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();const search=$('#employee-search');if(search){search.focus();search.select();}}});
 $$('.post-select').forEach(el=>el.addEventListener('change',e=>{ $('#post-filter').value=e.target.value;reloadReport();}));
 let searchTimer;$('#employee-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(reloadReport,220)});
 $('#employees-search').addEventListener('input',renderEmployees);
@@ -322,15 +377,15 @@ function openEmployee(prefill={}){
 }
 function openPost(prefill={}){
   state.editingPost=prefill.id||null;const form=$('#post-form');form.reset();clearError($('#post-error'));
-  form.elements.name.value=prefill.name||'';form.elements.municipality.value=prefill.municipality||'';form.elements.province.value=prefill.province||'';
-  $('#post-dialog h2').textContent=state.editingPost?'Editar puesto':'Añadir puesto';
-  form.querySelector('button[type="submit"]').textContent=state.editingPost?'Guardar cambios':'Guardar puesto';
+  form.elements.code.value=prefill.code||'';form.elements.name.value=prefill.name||'';
+  $('#post-dialog h2').textContent=state.editingPost?'Editar centro':'Añadir centro';
+  form.querySelector('button[type="submit"]').textContent=state.editingPost?'Guardar cambios':'Guardar centro';
   openDialog('#post-dialog');
 }
 $('#add-employee').addEventListener('click',()=>openEmployee());
 $('#add-post').addEventListener('click',()=>openPost());
 $('#employee-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api(state.editingEmployee?`/api/employees/${state.editingEmployee}`:'/api/employees',{method:state.editingEmployee?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const editing=Boolean(state.editingEmployee);state.editingEmployee=null;closeDialogs();await loadAll();toast(editing?'Empleado actualizado.':'Empleado guardado correctamente.')}catch(err){showError($('#employee-error'),err.message)}});
-$('#post-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api(state.editingPost?`/api/posts/${state.editingPost}`:'/api/posts',{method:state.editingPost?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const editing=Boolean(state.editingPost);state.editingPost=null;closeDialogs();await loadAll();toast(editing?'Puesto actualizado.':'Puesto guardado correctamente.')}catch(err){showError($('#post-error'),err.message)}});
+$('#post-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api(state.editingPost?`/api/posts/${state.editingPost}`:'/api/posts',{method:state.editingPost?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const editing=Boolean(state.editingPost);state.editingPost=null;closeDialogs();await loadAll();toast(editing?'Centro actualizado.':'Centro guardado correctamente.')}catch(err){showError($('#post-error'),err.message)}});
 $('#employee-grid').addEventListener('click',async e=>{
   const edit=e.target.closest('[data-edit-employee]');const del=e.target.closest('[data-delete-employee]');
   const person=edit?state.employees.find(x=>x.id===edit.dataset.editEmployee):del?state.employees.find(x=>x.id===del.dataset.deleteEmployee):null;
@@ -341,10 +396,11 @@ $('#post-grid').addEventListener('click',async e=>{
   const edit=e.target.closest('[data-edit-post]');const del=e.target.closest('[data-delete-post]');
   const post=edit?state.posts.find(x=>x.id===edit.dataset.editPost):del?state.posts.find(x=>x.id===del.dataset.deletePost):null;
   if(edit&&post){openPost(post);return;}
-  if(del&&post){if(!window.confirm(`¿Eliminar el puesto ${post.name}? Los turnos históricos se conservan.`))return;try{await api(`/api/posts/${post.id}`,{method:'DELETE'});await loadAll();toast('Puesto eliminado de la operación activa.')}catch(err){toast(err.message)}}
+  if(del&&post){if(!window.confirm(`¿Eliminar el centro ${post.name}? Los turnos históricos se conservan.`))return;try{await api(`/api/posts/${post.id}`,{method:'DELETE'});await loadAll();toast('Centro eliminado de la operación activa.')}catch(err){toast(err.message)}}
 });
-$('#shift-form').addEventListener('submit',async e=>{e.preventDefault();clearError($('#shift-error'));const breakStart=$('#break-start').value||null;const repeatMode=$('#shift-repeat').value;const repeatUntil=$('#shift-repeat-until').value;if(!state.editingShift&&repeatMode!=='none'&&!repeatUntil){showError($('#shift-error'),'Indica hasta qué fecha quieres repetir el turno.');return;}const data={employee_id:$('#shift-employee').value,post_id:$('#shift-post').value,start_at:$('#shift-start').value,end_at:$('#shift-end').value,break_start_at:breakStart,break_end_at:$('#break-end').value||null,break_paid:breakStart?$('#break-paid').value==='true':false};if(!state.editingShift){data.repeat_mode=repeatMode;data.repeat_until=repeatUntil||null;}try{const result=await api(state.editingShift?`/api/shifts/${state.editingShift}`:'/api/shifts',{method:state.editingShift?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});closeDialogs();await loadAll();await reloadReview();if(state.editingShift){toast('Turno actualizado.')}else if(result.created>1){toast(`${result.created} turnos guardados y sumados a los totales.${result.skipped?` ${result.skipped} ya existían.`:''}`)}else if(result.created===0){toast(`No se creó ningún turno: ${result.skipped} ya existían.`)}else{toast('Turno guardado y sumado a los totales.')}state.editingShift=null;}catch(err){showError($('#shift-error'),err.message)}});
-function updateRepeatHint(){const mode=$('#shift-repeat').value;const wrap=$('#repeat-until-wrap');const hint=$('#repeat-hint');wrap.classList.toggle('hidden',mode==='none');if(mode==='none'){hint.textContent='Elige una repetición para crear varios turnos con el mismo horario.';return;}const start=$('#shift-start').value;const until=$('#shift-repeat-until').value;if(!start||!until){hint.textContent='Indica la fecha final para ver cuántos turnos se crearán.';return;}const first=new Date(`${start.slice(0,10)}T12:00:00`);const last=new Date(`${until}T12:00:00`);if(last<first){hint.textContent='La fecha final debe ser igual o posterior a la entrada.';return;}let count=0;const cursor=new Date(first);while(cursor<=last){const weekday=cursor.getDay();if(mode==='daily'||(mode==='weekdays'&&weekday>=1&&weekday<=5)||(mode==='weekly'&&weekday===first.getDay()))count++;cursor.setDate(cursor.getDate()+1);}hint.textContent=count?`Se crearán ${count} turno${count===1?'':'s'} con este horario.`:'La repetición no genera ningún día en ese rango.';}
+$('#shift-form').addEventListener('submit',async e=>{e.preventDefault();clearError($('#shift-error'));const freeStart=$('#free-start').value||null;const freeEnd=$('#free-end').value||null;const repeatMode=$('#shift-repeat').value;const repeatUntil=$('#shift-repeat-until').value;if(Boolean(freeStart)!==Boolean(freeEnd)){showError($('#shift-error'),'Indica desde y hasta del espacio libre, o deja ambos vacíos.');return;}if(!state.editingShift&&repeatMode!=='none'&&repeatMode!=='custom'&&!repeatUntil){showError($('#shift-error'),'Indica hasta qué fecha quieres repetir el turno.');return;}if(!state.editingShift&&repeatMode==='custom'&&!state.customDays.length){showError($('#shift-error'),'Selecciona al menos un día concreto para la repetición esporádica.');return;}const data={employee_id:$('#shift-employee').value,post_id:$('#shift-post').value,start_at:$('#shift-start').value,end_at:$('#shift-end').value,break_start_at:freeStart,break_end_at:freeEnd,break_paid:false};if(!state.editingShift){data.repeat_mode=repeatMode;if(repeatMode==='custom')data.repeat_dates=[...state.customDays];else data.repeat_until=repeatUntil||null;}try{const result=await api(state.editingShift?`/api/shifts/${state.editingShift}`:'/api/shifts',{method:state.editingShift?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});closeDialogs();await loadAll();await reloadReview();if(state.editingShift){toast('Turno actualizado.')}else if(result.created>1){toast(`${result.created} turnos guardados y sumados a los totales.${result.skipped?` ${result.skipped} ya existían.`:''}`)}else if(result.created===0){toast(`No se creó ningún turno: ${result.skipped} ya existían.`)}else{toast('Turno guardado y sumado a los totales.')}state.editingShift=null;}catch(err){showError($('#shift-error'),err.message)}});
+function renderCustomDays(){const root=$('#custom-day-list');if(!root)return;root.innerHTML=state.customDays.map(day=>`<span class="custom-day-chip">${esc(commentedDate(day,true))}<button type="button" data-remove-custom-day="${esc(day)}" aria-label="Quitar ${esc(day)}">×</button></span>`).join('')||'<small class="custom-day-empty">Aún no has añadido días concretos.</small>';}
+function updateRepeatHint(){const mode=$('#shift-repeat').value;const wrap=$('#repeat-until-wrap');const customWrap=$('#custom-days-wrap');const hint=$('#repeat-hint');wrap.classList.toggle('hidden',mode==='none'||mode==='custom');customWrap.classList.toggle('hidden',mode!=='custom');if(mode==='none'){hint.textContent='Elige una repetición para crear varios turnos con el mismo horario.';return;}if(mode==='custom'){hint.textContent=state.customDays.length?`Se crearán ${state.customDays.length} turno${state.customDays.length===1?'':'s'} en los días seleccionados.`:'Añade los días concretos en los que el empleado trabaja en este centro.';return;}const start=$('#shift-start').value;const until=$('#shift-repeat-until').value;if(!start||!until){hint.textContent='Indica la fecha final para ver cuántos turnos se crearán.';return;}const first=new Date(`${start.slice(0,10)}T12:00:00`);const last=new Date(`${until}T12:00:00`);if(last<first){hint.textContent='La fecha final debe ser igual o posterior a la entrada.';return;}let count=0;const cursor=new Date(first);while(cursor<=last){const weekday=cursor.getDay();if(mode==='daily'||(mode==='weekdays'&&weekday>=1&&weekday<=5)||(mode==='weekly'&&weekday===first.getDay()))count++;cursor.setDate(cursor.getDate()+1);}hint.textContent=count?`Se crearán ${count} turno${count===1?'':'s'} con este horario.`:'La repetición no genera ningún día en ese rango.';}
 function updateShiftHolidayHint(){const hint=$('#shift-holiday-hint');if(!hint)return;const post=state.posts.find(p=>p.id===$('#shift-post').value);const names=post?holidayNamesForRange(post.municipality,$('#shift-start').value,$('#shift-end').value):[];hint.classList.toggle('hidden',!names.length);hint.textContent=names.length?`Festivo: ${names.join(', ')}. Las horas festivas se calcularán automáticamente.`:'';}
 $('#shift-repeat').addEventListener('change',updateRepeatHint);
 $('#shift-repeat-until').addEventListener('change',updateRepeatHint);
@@ -352,6 +408,8 @@ $('#shift-start').addEventListener('change',updateRepeatHint);
 $('#shift-start').addEventListener('change',updateShiftHolidayHint);
 $('#shift-end').addEventListener('change',updateShiftHolidayHint);
 $('#shift-post').addEventListener('change',updateShiftHolidayHint);
+$('#add-custom-day').addEventListener('click',()=>{const input=$('#shift-custom-date');const day=input.value;if(!day)return toast('Selecciona una fecha.');if(day<$('#shift-start').value.slice(0,10))return toast('El día debe ser igual o posterior a la entrada.');if(!state.customDays.includes(day)){state.customDays.push(day);state.customDays.sort();}input.value='';renderCustomDays();updateRepeatHint();});
+$('#custom-day-list').addEventListener('click',e=>{const button=e.target.closest('[data-remove-custom-day]');if(!button)return;state.customDays=state.customDays.filter(day=>day!==button.dataset.removeCustomDay);renderCustomDays();updateRepeatHint();});
 function exportQuery(){const params=new URLSearchParams({year:String(state.date.getFullYear())});if(state.mode==='month')params.set('month',String(state.date.getMonth()+1));if(selectedPost())params.set('post_id',selectedPost());return params;}
 $('#export-file').addEventListener('click',()=>{const format=$('#export-format').value==='csv'?'csv':'xlsx';window.location.href=`/api/exports/shifts.${format}?${exportQuery()}`});
 $('#choose-csv').addEventListener('click',()=>$('#csv-file').click());
@@ -359,7 +417,6 @@ $('#csv-file').addEventListener('change',e=>{previewAndImport(e.target.files[0])
 $$('.csv-inline').forEach(input=>input.addEventListener('change',e=>{previewAndImport(e.target.files[0]);e.target.value=''}));
 $('#drop-zone').addEventListener('dragover',e=>{e.preventDefault();e.currentTarget.classList.add('dragging')});$('#drop-zone').addEventListener('dragleave',e=>e.currentTarget.classList.remove('dragging'));$('#drop-zone').addEventListener('drop',e=>{e.preventDefault();e.currentTarget.classList.remove('dragging');previewAndImport(e.dataTransfer.files[0])});
 $('#drop-zone').addEventListener('click',e=>{if(e.target.closest('button'))return;$('#csv-file').click()});
-$('#break-start').addEventListener('input',()=>$('#break-paid-label').classList.toggle('hidden',!$('#break-start').value));$('#break-end').addEventListener('input',()=>$('#break-paid-label').classList.toggle('hidden',!$('#break-end').value));
 $('#review-list').addEventListener('click',async e=>{
   const confirm=e.target.closest('[data-confirm-shift]');const discardShift=e.target.closest('[data-discard-shift]');const editPending=e.target.closest('[data-edit-pending]');const resolve=e.target.closest('[data-resolve-review]');const resolveSummary=e.target.closest('[data-resolve-summary]');const discard=e.target.closest('[data-discard-review]');
   try{
@@ -367,8 +424,8 @@ $('#review-list').addEventListener('click',async e=>{
     if(confirm){await api(`/api/shifts/${confirm.dataset.confirmShift}/confirm`,{method:'POST'});toast('Turno confirmado y contabilizado.')}
     if(discardShift){await api(`/api/shifts/${discardShift.dataset.discardShift}`,{method:'DELETE'});toast('Turno pendiente descartado.')}
     if(discard){await api(`/api/review/${discard.dataset.discardReview}`,{method:'DELETE'});toast('Fila descartada.')}
-    if(resolveSummary){const card=resolveSummary.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const data={employee_id:value('summary_employee_id'),month:value('summary_month'),hours:value('summary_hours')};await api(`/api/review/${resolveSummary.dataset.resolveSummary}/resolve-summary`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Resumen mensual corregido y guardado.')}
-    if(resolve){const card=resolve.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const breakStart=value('break_start_at');const data={employee_id:value('employee_id'),post_id:value('post_id'),start_at:value('start_at'),end_at:value('end_at'),break_start_at:breakStart||null,break_end_at:value('break_end_at')||null,break_paid:breakStart?value('break_paid')==='true':false};await api(`/api/review/${resolve.dataset.resolveReview}/resolve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Fila corregida y confirmada.')}
+    if(resolveSummary){const card=resolveSummary.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const employeeId=value('summary_employee_id');if(!employeeId){toast('Selecciona el empleado del resumen.');return;}const data={employee_id:employeeId,month:value('summary_month'),hours:value('summary_hours')};await api(`/api/review/${resolveSummary.dataset.resolveSummary}/resolve-summary`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Resumen mensual corregido y guardado.')}
+    if(resolve){const card=resolve.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const employeeId=value('employee_id');const postId=value('post_id');if(!employeeId||!postId){toast('Selecciona el empleado y el centro antes de confirmar.');return;}const freeStart=value('free_start_at');const freeEnd=value('free_end_at');if(Boolean(freeStart)!==Boolean(freeEnd)){toast('Indica desde y hasta del espacio libre.');return;}const data={employee_id:employeeId,post_id:postId,start_at:value('start_at'),end_at:value('end_at'),break_start_at:freeStart||null,break_end_at:freeEnd||null,break_paid:false};await api(`/api/review/${resolve.dataset.resolveReview}/resolve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Fila corregida y confirmada.')}
     await reloadBase();await reloadReport();
   }catch(err){toast(err.message)}
 });
@@ -395,7 +452,7 @@ $('#toggle-excel').addEventListener('click',()=>{if(state.mode==='year')return;s
 $('#excel-save').addEventListener('click',saveExcelChanges);
 $('#bulk-clear').addEventListener('click',()=>{state.selectedShifts.clear();syncShiftSelection();});
 $('#bulk-review').addEventListener('click',()=>sendShiftsToReview([...state.selectedShifts]));
-$('#help-button').addEventListener('click',()=>toast('Aplicación local. Festivos: añádelos por municipio en el calendario. Turnos importados: confirma antes de calcular informes.'));
+$('#help-button').addEventListener('click',()=>toast('Centro de administración de personal de seguridad privada. Aplicación local: festivos por municipio y turnos importados que debes confirmar antes de calcular informes.'));
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#employee-search').focus()}if(e.key==='Escape')$('#sidebar').classList.remove('open')});
 window.addEventListener('hashchange',()=>navigate(location.hash.replace('#','')==='inicio'?'overview':location.hash.slice(1)));
 (async()=>{try{await loadAll();const requested=location.hash.replace('#','');navigate(requested==='inicio'?'overview':(requested||'overview'));}catch(error){toast(`No se pudo iniciar: ${error.message}`)}})();

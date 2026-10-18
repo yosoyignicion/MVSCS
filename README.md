@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="MVSCS Private Dashboard" width="420">
+<img src="assets/logo.svg" alt="Centro de administración de personal de seguridad privada" width="480">
 
-# MVSCS Private Dashboard
+# Centro de administración de personal de seguridad privada
 
-### Panel local de cuadrantes y horas · **MED Vigilantes Castellón**
+### Gestión local de centros, turnos y horas · **Seguridad privada**
 
 **Registra turnos, importa cuadrantes y calcula horas nocturnas y festivas sin enviar nada fuera de tu equipo.**
 
@@ -18,10 +18,11 @@
 
 Una aplicación **100 % local** (FastAPI + SQLite + HTML/CSS/JS) para equipos de seguridad privada. Todo ocurre en tu ordenador: no hay cuentas, ni nube, ni telemetría. La base se guarda en `data/quadrants.sqlite3`.
 
-- Panel mensual y anual con horas trabajadas, **nocturnas** y **festivas** en `HH:MM`.
-- Empleados y **puestos** con municipio y provincia, **editables y eliminables** sin perder el histórico.
-- Registro manual de turnos (varios al día, cruce de medianoche, pausas remuneradas/no remuneradas) y **repetición automática** en varios días.
-- **Importación** de CSV, Excel (`.xlsx`/`.xlsm`) y PDF digital, o de un **resumen mensual**.
+- Panel mensual y anual con horas trabajadas, **nocturnas** y **festivas** en `HH:MM`; los espacios libres restan del total.
+- **Panel lateral comprimible** con persistencia, navegación accesible y una interfaz de estilo premium.
+- Empleados y **centros** con **ID y nombre** (provincia de Castellón por defecto), **editables y eliminables** sin perder el histórico. El municipio ya no se solicita en la interfaz.
+- Registro manual de turnos (varios al día, cruce de medianoche y **espacios libres** opcionales que se descuentan) y **repetición automática**: diaria, lunes a viernes, mismo día de la semana o **días concretos esporádicos**.
+- **Importación** de cualquier texto tabular (CSV/TSV/TXT), Excel (`.xlsx`/`.xlsm`/`.xls`), ODS de LibreOffice y PDF digital, o de un **resumen mensual**.
 - Bandeja de **revisión** y **unificación de duplicados**.
 - **Vista Excel** editable en línea y **exportación XLSX/CSV** del periodo, con fechas comentadas (`Lun 19 oct`).
 - **Festivos oficiales** estatales, autonómicos y locales de Castelló generados por reglas hasta cinco años vista; se marcan en el cuadrante, se avisan al crear turnos y los descartes son duraderos.
@@ -47,12 +48,12 @@ Solo necesitas **Python 3.10 o superior**. El iniciador instala el resto la prim
 
 | Sistema | Cómo |
 |---|---|
-| **Windows** | Doble clic en `launcher\launch.bat` |
+| **Windows** | Doble clic en `launcher\launch.bat` (o `launcher\launch.pyw`) |
 | **macOS** | Doble clic en `launcher/launch.command` |
 | **Linux** | `python3 launcher/launch.py` — o crea un acceso directo en el menú con `bash launcher/install_desktop.sh` |
 | **Cualquiera** | `python launcher/launch.py` |
 
-Se abre una **ventana con el logo** que arranca el servidor y te lleva al navegador en `http://127.0.0.1:8000/`. Al pulsar **Cerrar** se detiene todo. Si el puerto 8000 está ocupado, el iniciador usa el siguiente libre.
+Se abre una **ventana con el logo** que arranca el servidor y te lleva al navegador en `http://127.0.0.1:8000/`. Al pulsar **Cerrar** se detiene todo. Si el puerto 8000 está ocupado, el iniciador usa el siguiente libre. En Windows el `.bat` arranca con `pythonw`, así que **no queda una consola abierta**; en macOS el `.command` cierra la Terminal. Si algo falla, revisa `data/launcher.log`.
 
 > ¿Prefieres hacerlo a mano? `pip install -r requirements.txt` y luego `uvicorn main:app --host 127.0.0.1 --port 8000`.
 
@@ -68,16 +69,16 @@ Al abrir verás el panel con los totales del periodo, la actividad y la zona de 
 
 Arrastra un archivo a la zona **Importar cuadrante** (o usa *Seleccionar archivo*). La app:
 
-1. Lee el archivo y detecta el formato (CSV, Excel o PDF) **validando la firma real**, no solo la extensión.
-2. **Auto-crea** el empleado (por ID) y el puesto (por nombre + municipio) que falten.
+1. Lee el archivo y detecta el formato por **contenido real** (texto tabular, Excel, ODS o PDF), sin fiarse de la extensión.
+2. **Auto-crea** el empleado (por ID) y el centro (por ID o nombre) que falten.
 3. Deja los turnos válidos **pendientes de confirmar** y las filas dudosas en **Por revisar**.
 4. Guarda los **resúmenes mensuales** aparte (no suman a las métricas de turnos).
 
-Formatos admitidos: CSV (`, ; tab |`, UTF-8/Windows-1252/Latin-1) y Excel (se elige la hoja y la fila de encabezados aunque haya títulos), ambos con detección de cabeceras; PDF digital con tabla. Se combinan las hojas/tablas válidas y el límite es de 5000 filas. Ver detalles en [`docs/importacion.md`](docs/importacion.md).
+Formatos admitidos: texto tabular (`, ; tab |` o columnas separadas por espacios; UTF-8/UTF-16/Windows-1252/Latin-1), Excel (`xlsx/xlsm/xls`; se elige la hoja y la fila de encabezados aunque haya títulos), ODS y PDF digital con tabla o texto alineado. Los encabezados se reconocen por alias y variantes (`TOTAL HORAS MES`, `Nº Empleado`, `Centro de trabajo`...); también se admite una columna `Horario` (`08:00-16:00` o partido) y celdas compuestas `ID - Nombre`. Si falta el ID de empleado, se concilia por nombre único. Se combinan hojas/tablas válidas y el límite es de 5000 filas. Ver detalles en [`docs/importacion.md`](docs/importacion.md).
 
 ### 2. Revisión manual
 
-En **Por revisar** corriges lo dudoso (empleado, puesto, horario, pausa) y confirmas. Los turnos pendientes se pueden **editar antes de confirmar**, y los **resúmenes mensuales** con errores tienen su propio editor (empleado, mes y horas) sin convertirse en turnos. Nada entra en los informes hasta confirmarlo.
+En **Por revisar** corriges lo dudoso (empleado, centro, horario y espacios libres) y confirmas. Los turnos pendientes se pueden **editar antes de confirmar**, y los **resúmenes mensuales** con errores tienen su propio editor (empleado, mes y horas) sin convertirse en turnos. Nada entra en los informes hasta confirmarlo.
 
 ![Pantalla de revisión](docs/img/03-revision.png)
 
@@ -85,9 +86,9 @@ Si el mismo **nombre** aparece con **IDs distintos**, la app lo detecta y lo mue
 
 ### 3. Modificación y consulta
 
-Al registrar un turno puedes **repetirlo** todos los días, solo de lunes a viernes o el mismo día de la semana, indicando la fecha final. La app muestra cuántos turnos se crearán, admite hasta 366 días y evita duplicar turnos idénticos. Si la fecha coincide con un festivo del puesto, el formulario lo avisa antes de guardar.
+Al registrar un turno puedes **repetirlo** todos los días, solo de lunes a viernes, el mismo día de la semana hasta una fecha final o en **días concretos** seleccionados a mano. La app muestra cuántos turnos se crearán, admite hasta 366 días y evita duplicar turnos idénticos. Si la fecha coincide con un festivo del centro, el formulario lo avisa antes de guardar.
 
-El **Cuadrante** muestra los turnos confirmados; puedes editar un turno, **exportar el periodo a Excel o CSV** o cambiar a **Vista Excel** para edición rápida en una tabla compacta. Los turnos que caen en festivo se marcan con una etiqueta y sus horas festivas se calculan automáticamente. Las fechas se muestran comentadas con el día de la semana y el número del día (`Dom 18 oct`), y la vista Excel sigue el orden habitual de trabajo (fecha, nombre, puesto/municipio, horario, pausa, duración, noches y festivas). Desde la misma tabla puedes seleccionar turnos (uno o varios) y **enviarlos a revisión**: dejan de sumar en los totales hasta que los confirmes de nuevo.
+El **Cuadrante** muestra los turnos confirmados; puedes editar un turno, **exportar el periodo a Excel o CSV** o cambiar a **Vista Excel** para edición rápida en una tabla compacta. Los turnos que caen en festivo se marcan con una etiqueta y sus horas festivas se calculan automáticamente. Las fechas se muestran comentadas con el día de la semana y el número del día (`Dom 18 oct`), y la vista Excel sigue el orden habitual de trabajo (fecha, nombre, centro, horario, espacios libres, duración, noches y festivas). Desde la misma tabla puedes seleccionar turnos (uno o varios) y **enviarlos a revisión**: dejan de sumar en los totales hasta que los confirmes de nuevo.
 
 ![Cuadrante](docs/img/02-cuadrante.png)
 
@@ -95,39 +96,39 @@ Vista Excel para edición rápida, con la fecha comentada y las columnas habitua
 
 ![Vista Excel](docs/img/06-vista-excel.png)
 
-### 4. Empleados y puestos
+### 4. Empleados y centros
 
-Cada empleado y cada puesto se pueden **editar o eliminar** desde su tarjeta. Al eliminar, los turnos y resúmenes históricos se conservan; si vuelves a crear el mismo ID o puesto, se reactiva.
+Cada empleado y cada centro se pueden **editar o eliminar** desde su tarjeta. Al eliminar, los turnos y resúmenes históricos se conservan; si vuelves a crear el mismo ID o centro, se reactiva.
 
 ![Empleados](docs/img/05-empleados.png)
 
-### 5. Puestos y festivos
+### 5. Centros y festivos
 
-Cada puesto tiene municipio y provincia y puede editarse o retirarse de la operación activa. Los festivos se aplican **por municipio del puesto**: los nacionales y autonómicos se replican a todos los municipios con puestos y los locales de Castelló se calculan por reglas. Si descartas un festivo, no reaparece al reiniciar.
+Cada centro se identifica por **ID y nombre** y puede editarse o retirarse de la operación activa. La provincia es Castellón y el municipio no se solicita; los festivos se aplican por el municipio por defecto (`Castelló de la Plana`). Si descartas un festivo, no reaparece al reiniciar.
 
-![Puestos y festivos](docs/img/04-puestos-festivos.png)
+![Centros y festivos](docs/img/04-puestos-festivos.png)
 
 ## Importación
 
 Encabezados preferidos (admiten alias en español e inglés):
 
 ```csv
-id,puesto,municipio,provincia,fecha,entrada,salida,pausa inicio,pausa fin,pausa remunerada
-VS-1042,Edificio principal,València,Valencia,2026-04-10,22:00,06:00,01:00,01:30,no
+id,id centro,centro,fecha,entrada,salida,espacio libre desde,espacio libre hasta
+VS-1042,C-01,Edificio principal,2026-04-10,08:00,20:00,14:00,16:00
 ```
 
 - La fecha es el día de **entrada**; una salida anterior se interpreta como el día siguiente. Si la salida trae fecha completa, se respeta y se rechazan turnos de más de 24 h.
-- Se aceptan CSV con `,`, `;`, tabulador o `|`; UTF-8, Windows-1252 o Latin-1; y fechas `YYYY-MM-DD`, `YYYYMMDD`, `DD/MM/YYYY` o serial de Excel. En Excel se detectan la hoja y la fila de encabezados aunque haya títulos delante; en PDF se combinan las tablas válidas.
-- Con pausa, `pausa remunerada` debe ser explícita (`sí`/`no`).
+- Se acepta cualquier texto tabular con `,`, `;`, tabulador, `|` o columnas separadas por dos o más espacios; UTF-8/UTF-16/Windows-1252/Latin-1; y fechas `YYYY-MM-DD`, `YYYYMMDD`, `DD/MM/YYYY` o serial de Excel. En Excel/ODS se detectan la hoja y la fila de encabezados aunque haya títulos delante; en PDF se combinan las tablas o se interpreta el texto alineado.
+- Los **espacios libres** son opcionales: se indican desde/hasta dentro del turno y sus horas **se descuentan**. Los antiguos campos de pausa y segundo tramo se siguen aceptando para importar históricos.
 - **Resumen mensual** (formato alternativo): `id;nombre;mes;horas totales` — p. ej. `SEG-001;Álvaro Castro;2026-07;200`. Se guarda aparte y se corrige desde **Por revisar**.
 
-**Exportación**: el selector `Exportar` ofrece Excel (`.xlsx`) y CSV. El Excel es el formato recomendado: reproduce la vista de trabajo habitual (fecha comentada con día de la semana, nombre, puesto/municipio, horario, pausa, duración, noches y festivas) y puede volver a importarse. Ambos formatos respetan el periodo y el puesto seleccionados.
+**Exportación**: el selector `Exportar` ofrece Excel (`.xlsx`) y CSV. El Excel es el formato recomendado: reproduce la vista de trabajo habitual (fecha comentada con día de la semana, nombre, ID y nombre del centro, horario, espacios libres, duración, noches y festivas) y puede volver a importarse. Ambos formatos respetan el periodo y el centro seleccionados e incluyen el ID del centro.
 
 ## Festivos oficiales
 
-La app **genera por reglas** los festivos **estatales, autonómicos y locales de Castelló de la Plana** desde 2025 y hasta cinco años vista, sin conexión: nacionales y autonómicos se replican a todos los municipios con puestos; los locales de Castelló se calculan con Magdalena = lunes de la tercera semana de Cuaresma y San Pedro = 29 de junio (trasladado al lunes si cae en domingo).
+La app **genera por reglas** los festivos **estatales, autonómicos y locales de Castelló de la Plana** desde 2025 y hasta cinco años vista, sin conexión: nacionales y autonómicos se replican a todos los municipios con centros; los locales de Castelló se calculan con Magdalena = lunes de la tercera semana de Cuaresma y San Pedro = 29 de junio (trasladado al lunes si cae en domingo).
 
-En **Puestos ▸ Festivos por municipio** se muestran los festivos **desde hoy en adelante**, agrupados por año. La barra lateral incluye un bloque plegable con los **próximos cuatro**, cerrado por defecto para no restar espacio. Los locales de otros municipios se añaden o revisan a mano.
+En **Centros ▸ Festivos por municipio** se muestran los festivos **desde hoy en adelante**, agrupados por año. La barra lateral incluye un bloque plegable con los **próximos cuatro**, cerrado por defecto para no restar espacio. Los locales de otros municipios se añaden o revisan a mano.
 
 Fuentes oficiales si necesitas verificarlos:
 
@@ -139,7 +140,7 @@ La app no descarga de Internet en tiempo de ejecución; la generación es offlin
 
 ## Uso responsable
 
-Esto es una herramienta de **registro y cálculo**, no un sistema de nómina ni una interpretación de convenio. Verifica festivos, pausas y municipios. Los informes solo suman turnos **confirmados**.
+Esto es una herramienta de **registro y cálculo**, no un sistema de nómina ni una interpretación de convenio. Verifica festivos, espacios libres y centros. Los informes solo suman turnos **confirmados**.
 
 ## Estructura del proyecto
 

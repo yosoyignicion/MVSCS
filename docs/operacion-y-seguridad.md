@@ -27,7 +27,7 @@ Una base, CSV o futura importación de cuadrantes puede contener datos personale
 
 ## Mantenimiento de calendarios y reglas
 
-Festivos, municipio del puesto, franja 22:00–06:00 y significado de pausa requieren verificación humana. La app genera por reglas los festivos nacionales, autonómicos y locales de Castelló desde 2025 hasta cinco años vista. Esa previsión no certifica el calendario oficial: verifica BOE/DOGV/BOP y añade o corrige los locales de otros municipios. Las reglas de la app no determinan salarios ni cumplimiento de normativa laboral.
+Festivos, municipio por defecto, franja 22:00–06:00 y los espacios libres requieren verificación humana. La app genera por reglas los festivos nacionales, autonómicos y locales de Castelló desde 2025 hasta cinco años vista. Esa previsión no certifica el calendario oficial: verifica BOE/DOGV/BOP y añade o corrige los locales de otros municipios. Las reglas de la app no determinan salarios ni cumplimiento de normativa laboral.
 
 ## Incidentes de datos
 

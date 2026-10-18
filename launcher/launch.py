@@ -1,4 +1,4 @@
-"""Iniciador de MVSCS Private Dashboard.
+"""Iniciador del Centro de administración de personal de seguridad privada.
 
 Arranca el servidor local (uvicorn) y muestra una ventana con el logo que
 permite abrir el panel en el navegador y cerrar la app. Funciona en Linux,
@@ -23,8 +23,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
 LOG_PATH = ROOT / "data" / "launcher.log"
-DEFAULT_PORT = int(os.environ.get("MVSCS_PORT", "8000"))
+APP_NAME = "Centro de administración de personal de seguridad privada"
+APP_SHORT = "Centro de administración"
+DEFAULT_PORT = int(os.environ.get("CENTRO_PORT", "8000"))
 HEALTH_TIMEOUT = 25.0
+
+
+def note(message: str) -> None:
+    """Escribe en consola si existe; con pythonw (Windows) no hay stdout."""
+    try:
+        print(message, flush=True)
+    except Exception:
+        pass
 
 
 def free_port(preferred: int) -> int:
@@ -40,7 +50,7 @@ def free_port(preferred: int) -> int:
 
 
 def dependencies_ready() -> tuple[bool, str]:
-    required = ["fastapi", "uvicorn", "multipart", "openpyxl", "fitz"]
+    required = ["fastapi", "uvicorn", "multipart", "openpyxl", "xlrd", "fitz"]
     if sys.platform.startswith("win"):
         required.append("tzdata")
     missing = [name for name in required if not _importable(name)]
@@ -59,9 +69,13 @@ def _importable(name: str) -> bool:
 
 def install_requirements() -> bool:
     req = ROOT / "requirements.txt"
-    cmd = [sys.executable, "-m", "pip", "install", "-r", str(req)] if req.exists() else [sys.executable, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart", "openpyxl", "pymupdf"]
-    print("Instalando dependencias:", " ".join(cmd))
-    return subprocess.call(cmd) == 0
+    cmd = [sys.executable, "-m", "pip", "install", "-r", str(req)] if req.exists() else [sys.executable, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart", "openpyxl", "xlrd", "pymupdf"]
+    note("Instalando dependencias: " + " ".join(cmd))
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOG_PATH, "a", encoding="utf-8") as log:
+        log.write("Instalando dependencias: " + " ".join(cmd) + "\n")
+        log.flush()
+        return subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT) == 0
 
 
 def start_server(port: int) -> subprocess.Popen:
@@ -105,7 +119,7 @@ def run_gui(port: int, process: subprocess.Popen) -> None:
 
     url = f"http://127.0.0.1:{port}/"
     window = tk.Tk()
-    window.title("MVSCS Private Dashboard")
+    window.title(APP_NAME)
     window.configure(bg="#0b1220")
     window.resizable(False, False)
     try:
@@ -120,8 +134,8 @@ def run_gui(port: int, process: subprocess.Popen) -> None:
     except Exception:
         logo_image = None
 
-    tk.Label(window, text="MVSCS Private Dashboard", bg="#0b1220", fg="#f1f5f9", font=("DejaVu Sans", 15, "bold")).pack()
-    tk.Label(window, text="MED Vigilantes Castellón · panel local", bg="#0b1220", fg="#38bdf8", font=("DejaVu Sans", 9)).pack(pady=(2, 10))
+    tk.Label(window, text="Centro de administración", bg="#0b1220", fg="#f1f5f9", font=("DejaVu Sans", 15, "bold")).pack()
+    tk.Label(window, text="Personal de seguridad privada · panel local", bg="#0b1220", fg="#67e8f9", font=("DejaVu Sans", 9)).pack(pady=(2, 10))
     tk.Label(window, text=f"Servidor activo en\n{url}", bg="#0b1220", fg="#cbd5e1", font=default_font, justify="center").pack(pady=(0, 15))
 
     opened = {"done": False}
@@ -144,15 +158,15 @@ def run_gui(port: int, process: subprocess.Popen) -> None:
     window.protocol("WM_DELETE_WINDOW", close_app)
     open_panel()
     if not opened["done"]:
-        messagebox.showwarning("MVSCS", "No se pudo abrir el navegador automáticamente. Usa el botón «Abrir panel».")
+        messagebox.showwarning(APP_SHORT, "No se pudo abrir el navegador automáticamente. Usa el botón «Abrir panel».")
     window.mainloop()
 
 
 def run_headless(port: int, process: subprocess.Popen) -> None:
     url = f"http://127.0.0.1:{port}/"
     webbrowser.open(url)
-    print(f"MVSCS Private Dashboard en {url}")
-    print("Pulsa Ctrl+C para detener el servidor.")
+    note(f"{APP_SHORT} en {url}")
+    note("Pulsa Ctrl+C para detener el servidor.")
     try:
         process.wait()
     except KeyboardInterrupt:
@@ -160,26 +174,26 @@ def run_headless(port: int, process: subprocess.Popen) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Iniciador de MVSCS Private Dashboard")
+    parser = argparse.ArgumentParser(description="Iniciador del Centro de administración")
     parser.add_argument("--no-gui", action="store_true", help="Sin ventana: abre el navegador y deja el servidor en consola")
     parser.add_argument("--check", action="store_true", help="Comprueba dependencias y termina")
     args = parser.parse_args()
 
     ready, missing = dependencies_ready()
     if args.check:
-        print("Dependencias:", "OK" if ready else f"faltan: {missing}")
+        note("Dependencias: " + ("OK" if ready else f"faltan: {missing}"))
         return 0 if ready else 1
     if not ready:
-        print(f"Faltan dependencias ({missing}). Se instalarán ahora.")
+        note(f"Faltan dependencias ({missing}). Se instalarán ahora.")
         if not install_requirements():
-            print("No se pudieron instalar las dependencias. Ejecuta: python -m pip install -r requirements.txt")
+            note("No se pudieron instalar las dependencias. Ejecuta: python -m pip install -r requirements.txt")
             return 1
 
     port = free_port(DEFAULT_PORT)
     process = start_server(port)
-    print(f"Servidor MVSCS iniciado (PID {process.pid}) en http://127.0.0.1:{port}/")
+    note(f"Servidor del Centro iniciado (PID {process.pid}) en http://127.0.0.1:{port}/")
     if not wait_healthy(port, process):
-        print(f"El servidor no respondió. Revisa el registro en {LOG_PATH}.")
+        note(f"El servidor no respondió. Revisa el registro en {LOG_PATH}.")
         stop_server(process)
         return 1
 
@@ -202,4 +216,14 @@ def _has_gui() -> bool:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as log:
+            traceback.print_exc(file=log)
+        raise

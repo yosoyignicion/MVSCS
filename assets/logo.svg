@@ -1,12 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="160" viewBox="0 0 640 160" role="img" aria-label="MVSCS Private Dashboard">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b1220"/>
-      <stop offset="1" stop-color="#11243a"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="144" height="144" rx="32" fill="url(#bg)" stroke="#11243a" stroke-width="2"/>
-  <path d="M80 34 L116 34 L116 78 L80 118 L44 78 L44 34 Z" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linejoin="round"/>
-  <text x="176" y="82" font-family="DejaVu Sans, Arial, sans-serif" font-size="62" font-weight="700" fill="#f1f5f9">MVSCS</text>
-  <text x="178" y="116" font-family="DejaVu Sans, Arial, sans-serif" font-size="21" letter-spacing="4" fill="#38bdf8">PRIVATE DASHBOARD</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-label="Centro de administración de personal de seguridad privada">
+  <rect width="720" height="180" rx="24" fill="#0b1724"/>
+  <rect x="22" y="22" width="136" height="136" rx="34" fill="#0e7490"/>
+  <path d="M120 108a40 40 0 1 1 0-36" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="133" cy="122" r="12" fill="#67e8f9"/>
+  <text x="188" y="84" font-family="DejaVu Sans, Arial, sans-serif" font-size="44" font-weight="700" fill="#f1f7fa">Centro</text>
+  <text x="190" y="117" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4" fill="#67e8f9">ADMINISTRACIÓN DE PERSONAL</text>
+  <text x="190" y="140" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" fill="#93b3c2">Seguridad privada · gestión local</text>
 </svg>
