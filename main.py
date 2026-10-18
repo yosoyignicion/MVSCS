@@ -231,6 +231,8 @@ class ShiftInput(BaseModel):
     break_start_at: str | None = None
     break_end_at: str | None = None
     break_paid: bool | None = None
+    repeat_mode: str = "none"
+    repeat_until: str | None = None
 
 
 class ImportRows(BaseModel):
@@ -992,6 +994,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.post("/api/employees", status_code=201)
     def add_employee(data: EmployeeInput) -> dict[str, Any]:
         with closing(connect(selected_path)) as conn:
+            existing = conn.execute("SELECT id,active FROM employees WHERE code=?", (data.code.strip(),)).fetchone()
+            if existing:
+                if existing["active"]:
+                    raise HTTPException(409, "Ese ID de empleado ya existe.")
+                conn.execute("UPDATE employees SET first_name=?,last_name=?,active=1 WHERE id=?", (data.first_name.strip(), data.last_name.strip(), existing["id"]))
+                conn.commit()
+                return row_dict(conn.execute("SELECT id,code,first_name,last_name,active FROM employees WHERE id=?", (existing["id"],)).fetchone())
             employee_id = str(uuid.uuid4())
             try:
                 conn.execute("INSERT INTO employees(id,code,first_name,last_name,created_at) VALUES(?,?,?,?,?)", (employee_id, data.code.strip(), data.first_name.strip(), data.last_name.strip(), now_text()))
@@ -999,6 +1008,26 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(409, "Ese ID de empleado ya existe.") from exc
             return row_dict(conn.execute("SELECT id,code,first_name,last_name,active FROM employees WHERE id=?", (employee_id,)).fetchone())
+
+    @app.patch("/api/employees/{employee_id}")
+    def update_employee(employee_id: str, data: EmployeeInput) -> dict[str, Any]:
+        with closing(connect(selected_path)) as conn:
+            if not conn.execute("SELECT 1 FROM employees WHERE id=?", (employee_id,)).fetchone():
+                raise HTTPException(404, "Empleado no encontrado.")
+            conflict = conn.execute("SELECT 1 FROM employees WHERE code=? AND id<>?", (data.code.strip(), employee_id)).fetchone()
+            if conflict:
+                raise HTTPException(409, "Ese ID de empleado ya existe.")
+            conn.execute("UPDATE employees SET code=?,first_name=?,last_name=? WHERE id=?", (data.code.strip(), data.first_name.strip(), data.last_name.strip(), employee_id))
+            conn.commit()
+            return row_dict(conn.execute("SELECT id,code,first_name,last_name,active FROM employees WHERE id=?", (employee_id,)).fetchone())
+
+    @app.delete("/api/employees/{employee_id}", status_code=204)
+    def delete_employee(employee_id: str) -> None:
+        with closing(connect(selected_path)) as conn:
+            result = conn.execute("UPDATE employees SET active=0 WHERE id=? AND active=1", (employee_id,))
+            if not result.rowcount:
+                raise HTTPException(404, "Empleado no encontrado.")
+            conn.commit()
 
     @app.get("/api/posts")
     def posts(q: str = "") -> list[dict[str, Any]]:
@@ -1009,6 +1038,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.post("/api/posts", status_code=201)
     def add_post(data: PostInput) -> dict[str, Any]:
         with closing(connect(selected_path)) as conn:
+            existing = conn.execute("SELECT id,active FROM posts WHERE name=? AND municipality=?", (data.name.strip(), data.municipality.strip())).fetchone()
+            if existing:
+                if existing["active"]:
+                    raise HTTPException(409, "Ya existe un puesto con ese nombre en ese municipio.")
+                conn.execute("UPDATE posts SET province=?,active=1 WHERE id=?", (data.province.strip(), existing["id"]))
+                sync_official_holidays(conn)
+                conn.commit()
+                return row_dict(conn.execute("SELECT id,name,municipality,province,active FROM posts WHERE id=?", (existing["id"],)).fetchone())
             post_id = str(uuid.uuid4())
             try:
                 conn.execute("INSERT INTO posts(id,name,municipality,province,created_at) VALUES(?,?,?,?,?)", (post_id, data.name.strip(), data.municipality.strip(), data.province.strip(), now_text()))
@@ -1017,6 +1054,27 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(409, "Ya existe un puesto con ese nombre en ese municipio.") from exc
             return row_dict(conn.execute("SELECT id,name,municipality,province,active FROM posts WHERE id=?", (post_id,)).fetchone())
+
+    @app.patch("/api/posts/{post_id}")
+    def update_post(post_id: str, data: PostInput) -> dict[str, Any]:
+        with closing(connect(selected_path)) as conn:
+            if not conn.execute("SELECT 1 FROM posts WHERE id=?", (post_id,)).fetchone():
+                raise HTTPException(404, "Puesto no encontrado.")
+            conflict = conn.execute("SELECT 1 FROM posts WHERE name=? AND municipality=? AND id<>?", (data.name.strip(), data.municipality.strip(), post_id)).fetchone()
+            if conflict:
+                raise HTTPException(409, "Ya existe otro puesto con ese nombre en ese municipio.")
+            conn.execute("UPDATE posts SET name=?,municipality=?,province=? WHERE id=?", (data.name.strip(), data.municipality.strip(), data.province.strip(), post_id))
+            sync_official_holidays(conn)
+            conn.commit()
+            return row_dict(conn.execute("SELECT id,name,municipality,province,active FROM posts WHERE id=?", (post_id,)).fetchone())
+
+    @app.delete("/api/posts/{post_id}", status_code=204)
+    def delete_post(post_id: str) -> None:
+        with closing(connect(selected_path)) as conn:
+            result = conn.execute("UPDATE posts SET active=0 WHERE id=? AND active=1", (post_id,))
+            if not result.rowcount:
+                raise HTTPException(404, "Puesto no encontrado.")
+            conn.commit()
 
     @app.get("/api/shifts")
     def shifts(from_date: str | None = None, to_date: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
@@ -1041,28 +1099,79 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/shifts", status_code=201)
     def add_shift(data: ShiftInput) -> dict[str, Any]:
+        mode = (data.repeat_mode or "none").strip().lower()
+        if mode not in {"none", "daily", "weekdays", "weekly"}:
+            raise HTTPException(422, "Opción de repetición no válida.")
         with closing(connect(selected_path)) as conn:
             try:
                 start, end, break_start, break_end = validate_shift(data, conn)
-                shift_id = str(uuid.uuid4())
-                conn.execute("INSERT INTO shifts(id,employee_id,post_id,start_at,end_at,break_start_at,break_end_at,break_paid,status,source,created_at) VALUES(?,?,?,?,?,?,?,?, 'confirmed','manual',?)", (shift_id, data.employee_id, data.post_id, start.isoformat(timespec="minutes"), end.isoformat(timespec="minutes"), break_start.isoformat(timespec="minutes") if break_start else None, break_end.isoformat(timespec="minutes") if break_end else None, int(bool(data.break_paid)), now_text()))
-                conn.commit()
+                if mode == "none":
+                    days = [start.date()]
+                else:
+                    if not data.repeat_until:
+                        raise ValueError("Indica hasta qué fecha repetir el turno.")
+                    until = coerce_date(data.repeat_until)
+                    if until < start.date():
+                        raise ValueError("La fecha final de repetición debe ser igual o posterior a la entrada.")
+                    if (until - start.date()).days > 366:
+                        raise ValueError("La repetición admite como máximo 366 días.")
+                    days = []
+                    current = start.date()
+                    while current <= until:
+                        if mode == "daily" or (mode == "weekdays" and current.weekday() < 5) or (mode == "weekly" and current.weekday() == start.date().weekday()):
+                            days.append(current)
+                        current += timedelta(days=1)
+                    if not days:
+                        raise ValueError("La repetición seleccionada no genera ningún día en ese rango.")
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
-            return {"id": shift_id, "status": "confirmed"}
+            created: list[str] = []
+            skipped = 0
+            for day in days:
+                offset = day - start.date()
+                occurrence = ShiftInput(
+                    employee_id=data.employee_id,
+                    post_id=data.post_id,
+                    start_at=(start + offset).isoformat(timespec="minutes"),
+                    end_at=(end + offset).isoformat(timespec="minutes"),
+                    break_start_at=(break_start + offset).isoformat(timespec="minutes") if break_start else None,
+                    break_end_at=(break_end + offset).isoformat(timespec="minutes") if break_end else None,
+                    break_paid=data.break_paid,
+                )
+                try:
+                    occ_start, occ_end, occ_break_start, occ_break_end = validate_shift(occurrence, conn)
+                except ValueError as exc:
+                    raise HTTPException(422, f"{day.isoformat()}: {exc}") from exc
+                start_text = occ_start.isoformat(timespec="minutes")
+                end_text = occ_end.isoformat(timespec="minutes")
+                break_start_text = occ_break_start.isoformat(timespec="minutes") if occ_break_start else None
+                break_end_text = occ_break_end.isoformat(timespec="minutes") if occ_break_end else None
+                duplicate = conn.execute(
+                    "SELECT 1 FROM shifts WHERE employee_id=? AND post_id=? AND start_at=? AND end_at=? AND COALESCE(break_start_at,'')=? AND COALESCE(break_end_at,'')=? AND break_paid=? AND status IN ('confirmed','pending')",
+                    (data.employee_id, data.post_id, start_text, end_text, break_start_text or "", break_end_text or "", int(bool(data.break_paid))),
+                ).fetchone()
+                if duplicate:
+                    skipped += 1
+                    continue
+                shift_id = str(uuid.uuid4())
+                conn.execute("INSERT INTO shifts(id,employee_id,post_id,start_at,end_at,break_start_at,break_end_at,break_paid,status,source,created_at) VALUES(?,?,?,?,?,?,?,?, 'confirmed','manual',?)", (shift_id, data.employee_id, data.post_id, start_text, end_text, break_start_text, break_end_text, int(bool(data.break_paid)), now_text()))
+                created.append(shift_id)
+            conn.commit()
+            return {"id": created[0] if created else "", "status": "confirmed", "created": len(created), "skipped": skipped}
 
     @app.patch("/api/shifts/{shift_id}")
     def update_shift(shift_id: str, data: ShiftInput) -> dict[str, str]:
         with closing(connect(selected_path)) as conn:
-            if not conn.execute("SELECT 1 FROM shifts WHERE id=? AND status='confirmed'", (shift_id,)).fetchone():
-                raise HTTPException(404, "No se encontró un turno confirmado.")
+            current = conn.execute("SELECT status FROM shifts WHERE id=?", (shift_id,)).fetchone()
+            if not current:
+                raise HTTPException(404, "No se encontró el turno.")
             try:
                 start, end, break_start, break_end = validate_shift(data, conn)
                 conn.execute("UPDATE shifts SET employee_id=?,post_id=?,start_at=?,end_at=?,break_start_at=?,break_end_at=?,break_paid=? WHERE id=?", (data.employee_id,data.post_id,start.isoformat(timespec="minutes"),end.isoformat(timespec="minutes"),break_start.isoformat(timespec="minutes") if break_start else None,break_end.isoformat(timespec="minutes") if break_end else None,int(bool(data.break_paid)),shift_id))
                 conn.commit()
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
-            return {"id": shift_id, "status": "confirmed"}
+            return {"id": shift_id, "status": current["status"]}
 
     @app.post("/api/shifts/{shift_id}/confirm")
     def confirm_shift(shift_id: str) -> dict[str, str]:

@@ -40,9 +40,9 @@ No se persisten totales agregados de turnos como autoridad: los informes derivan
 |---|---|
 | `GET /` y `/static/*` | Interfaz local |
 | `GET /api/health` | Readiness simple |
-| `GET/POST /api/employees` | Consultar/crear empleados |
+| `GET/POST /api/employees`, `PATCH/DELETE /api/employees/{id}` | Consultar, crear, editar o retirar empleados |
 | `GET /api/duplicates`, `POST /api/employees/{id}/merge` | Detectar y unificar empleados con mismo nombre y distinto ID |
-| `GET/POST /api/posts` | Consultar/crear puestos y municipios |
+| `GET/POST /api/posts`, `PATCH/DELETE /api/posts/{id}` | Consultar, crear, editar o retirar puestos |
 | `GET/POST /api/shifts` | Consultar/crear turnos |
 | `PATCH /api/shifts/{id}` | Editar turno confirmado |
 | `POST /api/shifts/{id}/confirm` | Confirmar turno importado pendiente |

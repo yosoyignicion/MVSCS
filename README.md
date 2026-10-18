@@ -19,12 +19,12 @@
 Una aplicación **100 % local** (FastAPI + SQLite + HTML/CSS/JS) para equipos de seguridad privada. Todo ocurre en tu ordenador: no hay cuentas, ni nube, ni telemetría. La base se guarda en `data/quadrants.sqlite3`.
 
 - Panel mensual y anual con horas trabajadas, **nocturnas** y **festivas** en `HH:MM`.
-- Empleados y **puestos** con municipio y provincia.
-- Registro manual de turnos (varios al día, cruce de medianoche, pausas remuneradas/no remuneradas).
+- Empleados y **puestos** con municipio y provincia, **editables y eliminables** sin perder el histórico.
+- Registro manual de turnos (varios al día, cruce de medianoche, pausas remuneradas/no remuneradas) y **repetición automática** en varios días.
 - **Importación** de CSV, Excel (`.xlsx`/`.xlsm`) y PDF digital, o de un **resumen mensual**.
 - Bandeja de **revisión** y **unificación de duplicados**.
 - **Vista Excel** editable en línea y **exportación XLSX/CSV** del periodo, con fechas comentadas (`Lun 19 oct`).
-- **Festivos oficiales** estatales, autonómicos y locales de Castelló generados por reglas hasta cinco años vista; los descartes son duraderos.
+- **Festivos oficiales** estatales, autonómicos y locales de Castelló generados por reglas hasta cinco años vista; se marcan en el cuadrante, se avisan al crear turnos y los descartes son duraderos.
 - **Revisión** de turnos pendientes, filas dudosas y **resúmenes mensuales** (sin convertirlos en turnos).
 - Interfaz responsive servida por la propia app, sin datos de ejemplo: la base arranca limpia.
 
@@ -77,7 +77,7 @@ Formatos admitidos: CSV (`, ; tab |`, UTF-8/Windows-1252/Latin-1) y Excel (se el
 
 ### 2. Revisión manual
 
-En **Por revisar** corriges lo dudoso (empleado, puesto, horario, pausa) y confirmas. Los **resúmenes mensuales** con errores tienen su propio editor (empleado, mes y horas) y nunca se convierten en turnos. Nada entra en los informes hasta confirmarlo.
+En **Por revisar** corriges lo dudoso (empleado, puesto, horario, pausa) y confirmas. Los turnos pendientes se pueden **editar antes de confirmar**, y los **resúmenes mensuales** con errores tienen su propio editor (empleado, mes y horas) sin convertirse en turnos. Nada entra en los informes hasta confirmarlo.
 
 ![Pantalla de revisión](docs/img/03-revision.png)
 
@@ -85,7 +85,9 @@ Si el mismo **nombre** aparece con **IDs distintos**, la app lo detecta y lo mue
 
 ### 3. Modificación y consulta
 
-El **Cuadrante** muestra los turnos confirmados; puedes editar un turno, **exportar el periodo a Excel o CSV** o cambiar a **Vista Excel** para edición rápida en una tabla compacta. Las fechas se muestran comentadas con el día de la semana y el número del día (`Dom 18 oct`), y la vista Excel sigue el orden habitual de trabajo (fecha, nombre, puesto/municipio, horario, pausa, duración, noches y festivas). Desde la misma tabla puedes seleccionar turnos (uno o varios) y **enviarlos a revisión**: dejan de sumar en los totales hasta que los confirmes de nuevo.
+Al registrar un turno puedes **repetirlo** todos los días, solo de lunes a viernes o el mismo día de la semana, indicando la fecha final. La app muestra cuántos turnos se crearán, admite hasta 366 días y evita duplicar turnos idénticos. Si la fecha coincide con un festivo del puesto, el formulario lo avisa antes de guardar.
+
+El **Cuadrante** muestra los turnos confirmados; puedes editar un turno, **exportar el periodo a Excel o CSV** o cambiar a **Vista Excel** para edición rápida en una tabla compacta. Los turnos que caen en festivo se marcan con una etiqueta y sus horas festivas se calculan automáticamente. Las fechas se muestran comentadas con el día de la semana y el número del día (`Dom 18 oct`), y la vista Excel sigue el orden habitual de trabajo (fecha, nombre, puesto/municipio, horario, pausa, duración, noches y festivas). Desde la misma tabla puedes seleccionar turnos (uno o varios) y **enviarlos a revisión**: dejan de sumar en los totales hasta que los confirmes de nuevo.
 
 ![Cuadrante](docs/img/02-cuadrante.png)
 
@@ -95,11 +97,13 @@ Vista Excel para edición rápida, con la fecha comentada y las columnas habitua
 
 ### 4. Empleados y puestos
 
+Cada empleado y cada puesto se pueden **editar o eliminar** desde su tarjeta. Al eliminar, los turnos y resúmenes históricos se conservan; si vuelves a crear el mismo ID o puesto, se reactiva.
+
 ![Empleados](docs/img/05-empleados.png)
 
 ### 5. Puestos y festivos
 
-Cada puesto tiene municipio y provincia. Los festivos se aplican **por municipio del puesto**: los nacionales y autonómicos se replican a todos los municipios con puestos y los locales de Castelló se calculan por reglas. Si descartas un festivo, no reaparece al reiniciar.
+Cada puesto tiene municipio y provincia y puede editarse o retirarse de la operación activa. Los festivos se aplican **por municipio del puesto**: los nacionales y autonómicos se replican a todos los municipios con puestos y los locales de Castelló se calculan por reglas. Si descartas un festivo, no reaparece al reiniciar.
 
 ![Puestos y festivos](docs/img/04-puestos-festivos.png)
 

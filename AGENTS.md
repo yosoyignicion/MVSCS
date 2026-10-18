@@ -47,9 +47,11 @@ FastAPI se crea con `docs_url=None, redoc_url=None`: **no hay `/docs` ni `/redoc
 - **La importación auto-crea** el empleado (por `code`) y el puesto (por nombre + municipio) que no existan; el municipio por defecto es `DEFAULT_MUNICIPALITY`. Lo que aún falle (fechas/pausa vacías, etc.) va a `review_items`.
 - **Resumen mensual** (columnas `mes` + `horas totales`, sin columnas de turno): `normalize_rows` lo detecta por `kind="summary"` y se guarda en `monthly_summaries`. **No son turnos** y se corrigen desde Por revisar con `POST /api/review/{id}/resolve-summary` (no crean turnos). Formato `;`/`,` y mes en `YYYY-MM`, `MM/YYYY` o nombre (es/en) + año.
 - Con pausa, `break_paid` debe ser explícito (manual: obligatorio; CSV: `sí/no`).
+- **Repetición manual**: `POST /api/shifts` acepta `repeat_mode` (`none|daily|weekdays|weekly`) y `repeat_until` (máx. 366 días); crea ocurrencias con el mismo horario/pausa, omite duplicados exactos y devuelve `created`/`skipped`.
 - Solo turnos `status='confirmed'` entran en `/api/reports`; pendientes y `review_items` quedan excluidos. `end_at <= start_at` se rechaza (CHECK + validación).
-- **`POST /api/shifts` inserta el turno ya `confirmed`** (origen `manual`); los importados entran como `pending` y solo pasan a contar con `POST /api/shifts/{id}/confirm`. `PATCH /api/shifts/{id}` solo edita confirmados; `DELETE /api/shifts/{id}` solo descarta pendientes.
-- Los puestos se concilian por **nombre y municipio**.
+- **`POST /api/shifts` inserta el turno ya `confirmed`** (origen `manual`); los importados entran como `pending` y solo pasan a contar con `POST /api/shifts/{id}/confirm`. `PATCH /api/shifts/{id}` edita confirmados y pendientes; `DELETE /api/shifts/{id}` solo descarta pendientes.
+- Los puestos se concilian por **nombre y municipio**. Empleados/puestos se **desactivan** (`active=0`) al eliminarlos para conservar turnos históricos; al recrear el mismo código/nombre se reactivan.
+- `PATCH /api/shifts/{id}` edita turnos **confirmados y pendientes** (los pendientes siguen pendientes hasta confirmarlos).
 
 ## Reglas de trabajo
 

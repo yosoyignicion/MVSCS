@@ -611,3 +611,121 @@ def test_export_neutralizes_formula_injection(client):
     assert row[0].startswith("'=")
     assert row[1].startswith("'=")
     assert row[2].startswith("'=")
+
+
+def test_repeat_daily_shift_creates_days_and_skips_duplicates(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    payload = {
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-10T22:00", "end_at": "2026-04-11T06:00",
+        "break_start_at": None, "break_end_at": None, "break_paid": False,
+        "repeat_mode": "daily", "repeat_until": "2026-04-12",
+    }
+    first = test_client.post("/api/shifts", json=payload)
+    assert first.status_code == 201, first.text
+    assert first.json()["created"] == 3
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert report["totals"]["hours"] == "24:00"
+    again = test_client.post("/api/shifts", json=payload)
+    assert again.status_code == 201
+    assert again.json() == {"id": "", "status": "confirmed", "created": 0, "skipped": 3}
+
+
+def test_repeat_weekdays_excludes_weekend(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    response = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-10T08:00", "end_at": "2026-04-10T16:00",
+        "break_start_at": None, "break_end_at": None, "break_paid": False,
+        "repeat_mode": "weekdays", "repeat_until": "2026-04-13",
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["created"] == 2  # viernes y lunes
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert {shift["start_at"][:10] for shift in report["shifts"]} == {"2026-04-10", "2026-04-13"}
+
+
+def test_repeat_weekly_uses_same_weekday_and_rejects_excess_range(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    response = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-10T08:00", "end_at": "2026-04-10T16:00",
+        "break_start_at": None, "break_end_at": None, "break_paid": False,
+        "repeat_mode": "weekly", "repeat_until": "2026-04-24",
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["created"] == 3
+    too_long = test_client.post("/api/shifts", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2027-01-01T08:00", "end_at": "2027-01-01T16:00",
+        "break_start_at": None, "break_end_at": None, "break_paid": False,
+        "repeat_mode": "daily", "repeat_until": "2028-06-01",
+    })
+    assert too_long.status_code == 422
+
+
+def test_employee_and_post_are_editable_and_removable(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    add_shift(test_client, employee, post)
+
+    updated_employee = test_client.patch(f"/api/employees/{employee['id']}", json={"code": "VS-900", "first_name": "Ana María", "last_name": "Vigilante"})
+    assert updated_employee.status_code == 200, updated_employee.text
+    assert updated_employee.json()["code"] == "VS-900"
+    updated_post = test_client.patch(f"/api/posts/{post['id']}", json={"name": "Puesto Renombrado", "municipality": "Castelló de la Plana", "province": "Castellón"})
+    assert updated_post.status_code == 200, updated_post.text
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert report["shifts"][0]["employee_code"] == "VS-900"
+    assert report["shifts"][0]["post_name"] == "Puesto Renombrado"
+
+    assert test_client.delete(f"/api/employees/{employee['id']}").status_code == 204
+    assert test_client.delete(f"/api/posts/{post['id']}").status_code == 204
+    assert test_client.get("/api/employees").json() == []
+    assert test_client.get("/api/posts").json() == []
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()
+    assert len(report["shifts"]) == 1  # el histórico se conserva
+
+    reactivated = test_client.post("/api/employees", json={"code": "VS-900", "first_name": "Ana", "last_name": "Vigilante"})
+    assert reactivated.status_code == 201
+    assert reactivated.json()["active"] == 1
+    reactivated_post = test_client.post("/api/posts", json={"name": "Puesto Renombrado", "municipality": "Castelló de la Plana", "province": "Castellón"})
+    assert reactivated_post.status_code == 201
+    assert reactivated_post.json()["active"] == 1
+
+
+def test_pending_shift_can_be_edited_before_confirming(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    content = (
+        "id;puesto;municipio;fecha;entrada;salida\n"
+        f"{employee['code']};{post['name']};{post['municipality']};2026-04-12;08:00;16:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("turno.csv", content, "text/csv")})
+    assert preview.status_code == 200
+    test_client.post("/api/imports/confirm", json={"filename": "turno.csv", "rows": preview.json()["rows"]})
+    item = next(entry for entry in test_client.get("/api/review").json() if entry["kind"] == "shift")
+    shift_id = item["shift"]["id"]
+    updated = test_client.patch(f"/api/shifts/{shift_id}", json={
+        "employee_id": employee["id"], "post_id": post["id"],
+        "start_at": "2026-04-12T09:00", "end_at": "2026-04-12T17:00",
+        "break_start_at": None, "break_end_at": None, "break_paid": False,
+    })
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["status"] == "pending"
+    item = next(entry for entry in test_client.get("/api/review").json() if entry["kind"] == "shift")
+    assert item["shift"]["start_at"].startswith("2026-04-12T09:00")
+    assert test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()["totals"]["hours"] == "00:00"
+
+
+def test_holiday_minutes_are_interpreted_in_schedule(client):
+    test_client, _ = client
+    employee, post = setup_people(client)  # València
+    shift = add_shift(test_client, employee, post, start_at="2026-10-11T22:00", end_at="2026-10-12T06:00", break_start_at=None, break_end_at=None)
+    assert shift.status_code == 201
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 10}).json()
+    assert report["totals"]["holiday_hours"] == "06:00"
+    assert report["totals"]["night_hours"] == "08:00"
+    assert report["shifts"][0]["holiday_minutes"] == 360
