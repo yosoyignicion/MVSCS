@@ -2,11 +2,11 @@
 
 ## Alcance disponible
 
-El MVP acepta **CSV UTF-8**, **Excel `.xlsx`/`.xlsm`** y **PDF digital con tabla**, hasta 10 MB, con una fila por turno **o** una fila por resumen mensual (ver más abajo). Quedan fuera PDF escaneado/OCR, extracción por plantillas, reconocimiento de colores y LM Studio.
+El MVP acepta **CSV**, **Excel `.xlsx`/`.xlsm`** y **PDF digital con tabla**, hasta 10 MB, con una fila por turno **o** una fila por resumen mensual (ver más abajo). Quedan fuera PDF escaneado/OCR, extracción por plantillas, reconocimiento de colores y LM Studio.
 
-- **CSV**: separador coma o punto y coma (se detecta automáticamente, igual que el tabulador), UTF-8 (se acepta BOM).
-- **Excel**: se lee la **primera hoja**; la primera fila debe contener los encabezados. Las celdas de fecha/hora nativas de Excel se normalizan a texto antes de aplicar los alias.
-- **PDF**: se detecta la **tabla con más filas** del documento y se usa su primera fila como encabezado. Un PDF que no exponga una tabla (por ejemplo, un escaneo) se rechaza con un error explícito; nunca se simula una importación.
+- **CSV**: separador coma, punto y coma, tabulador o barra vertical (se detecta automáticamente), codificación UTF-8 con o sin BOM, Windows-1252 o Latin-1. Se admiten filas de título antes de los encabezados.
+- **Excel**: se elige la hoja con encabezados reconocibles (no necesariamente la primera) y se busca la fila de encabezados entre las primeras filas, tolerando títulos o filas vacías. Las celdas nativas de fecha/hora y los números seriales de Excel se normalizan.
+- **PDF**: se elige la tabla con encabezados mejor reconocidos y se detecta la fila de cabecera aunque haya un título dentro de la tabla. Un PDF que no exponga una tabla (por ejemplo, un escaneo) se rechaza con un error explícito; nunca se simula una importación.
 
 El formato se decide por extensión y se valida la firma real del archivo (zip para Excel, `%PDF` para PDF), sin confiar en el nombre.
 
@@ -28,17 +28,20 @@ Se recomiendan encabezados normalizados como estos:
 
 | Campo | Obligatorio | Aliases aceptados actualmente |
 |---|---:|---|
-| ID del empleado | Sí | `id`, `employee_id`, `employee_code`, `codigo`, `codigo empleado`, `id trabajador`, `id empleado` |
-| Puesto | Sí | `post`, `service`, `puesto`, `servicio`, `instalacion` |
-| Municipio del puesto | Sí | `municipality`, `municipio`, `localidad` |
-| Fecha de entrada | Sí | `date`, `fecha`, `dia` |
-| Entrada | Sí | `start`, `entrada`, `hora entrada`, `inicio` |
-| Salida | Sí | `end`, `salida`, `hora salida`, `fin` |
-| Inicio de pausa | No | `break_start`, `pausa inicio`, `inicio pausa` |
-| Fin de pausa | No | `break_end`, `pausa fin`, `fin pausa` |
-| ¿Pausa remunerada? | Requerido si se indica pausa | `break_paid`, `pausa remunerada` |
+| ID del empleado | Sí | `id`, `employee_id`, `employee_code`, `codigo`, `codigo empleado`, `codigo trabajador`, `id trabajador`, `id empleado`, `nº empleado`, `num empleado` |
+| Nombre | Recomendado | `employee`, `empleado`, `nombre`, `nombre completo`, `nombre y apellidos`, `trabajador`, `vigilante` |
+| Apellidos | No | `apellidos`, `apellido` (se combinan con el nombre) |
+| Puesto | Sí | `post`, `service`, `puesto`, `puesto de trabajo`, `servicio`, `instalacion`, `centro`, `centro de trabajo` |
+| Municipio del puesto | Sí | `municipality`, `municipio`, `localidad`, `poblacion`, `ciudad` |
+| Provincia | No | `province`, `provincia`, `prov` |
+| Fecha de entrada | Sí | `date`, `fecha`, `dia`, `fecha turno`, `fecha de trabajo` |
+| Entrada | Sí | `start`, `entrada`, `hora entrada`, `hora de entrada`, `hora inicio`, `inicio`, `fecha entrada`, `fecha/hora entrada` |
+| Salida | Sí | `end`, `salida`, `hora salida`, `hora de salida`, `hora fin`, `fin`, `fecha salida`, `fecha/hora salida` |
+| Inicio de pausa | No | `break_start`, `pausa inicio`, `inicio pausa`, `inicio descanso`, `comida inicio` |
+| Fin de pausa | No | `break_end`, `pausa fin`, `fin pausa`, `fin descanso`, `comida fin` |
+| ¿Pausa remunerada? | Requerido si se indica pausa | `break_paid`, `pausa remunerada`, `pausa pagada` |
 
-Los aliases se comparan ignorando mayúsculas/minúsculas; se espera fecha ISO (`YYYY-MM-DD`) y hora (`HH:MM`). El archivo debe estar codificado en UTF-8; también se acepta BOM UTF-8. Los empleados se concilian por ID. Los puestos se concilian por nombre **y** municipio. Si el `code` o el puesto no existen, **se crean automáticamente al confirmar** (nunca en el preview). No hay conciliación por parecido textual ni fusión de duplicados.
+Los aliases se comparan ignorando mayúsculas/minúsculas y espacios repetidos. La fecha admite `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`, fecha serial de Excel y fecha/hora ISO. La hora admite `HH:MM`, `HH:MM:SS`, `HH.MM`, fracciones de día de Excel y `24:00` como fin de día. Si hay columnas `nombre` y `apellidos`, se combinan automáticamente. Los empleados se concilian por ID. Los puestos se concilian por nombre **y** municipio. Si el `code` o el puesto no existen, **se crean automáticamente al confirmar** (nunca en el preview). No hay conciliación por parecido difuso; los duplicados de nombre se detectan en la cola de revisión y se pueden fusionar manualmente.
 
 Ejemplo:
 
@@ -71,14 +74,17 @@ Además de turnos, se acepta un **resumen mensual** con una fila por empleado y 
 | Nombre (opcional) | `nombre`, `nombre ficticio`, `empleado` | `Álvaro Castro` |
 | Localización/puesto (opcional) | `localizacion`, `localización ficticia`, `puesto` | `Centro Comercial Aurora` |
 
-Se detecta automáticamente cuando aparecen las columnas de mes y horas. Estos totales **no son turnos**: se guardan en `monthly_summaries`, aparecen en el informe como **“Resúmenes mensuales importados”** y **no se suman** a las horas trabajadas/nocturnas/festivas. El empleado se crea si no existe. `GET /api/monthly-summaries` los lista y `DELETE /api/monthly-summaries/{id}` los elimina.
+Se detecta automáticamente cuando aparecen columnas de mes/horas y **no** hay columnas de turno (`fecha`, `entrada` o `salida`). Si un resumen tiene errores, se corrige en **Por revisar** con `POST /api/review/{id}/resolve-summary` (empleado, mes y horas); ese flujo no crea turnos. Estos totales **no son turnos**: se guardan en `monthly_summaries`, aparecen en el informe como **“Resúmenes mensuales importados”** y **no se suman** a las horas trabajadas/nocturnas/festivas. El empleado se crea si no existe. `GET /api/monthly-summaries` los lista y `DELETE /api/monthly-summaries/{id}` los elimina.
 
 ## Exportación disponible
 
-`GET /api/exports/shifts.csv?year=2026&month=4` descarga turnos confirmados, con filtro opcional `post_id`. Omitir `month` exporta el año entero. El resultado usa punto y coma, BOM UTF-8, fechas/horas locales ISO y columnas de duración `HH:MM`. Los turnos pendientes y filas sin resolver quedan excluidos. Ese mismo CSV se puede volver a importar (el separador `;` y el encabezado `ID empleado` se reconocen).
+- `GET /api/exports/shifts.xlsx?year=2026&month=4` descarga un libro Excel con encabezados fijos, filtros, panel congelado y columnas separadas de fecha/entrada/salida para edición rápida. Es el formato recomendado para trabajar y volver a importar.
+- `GET /api/exports/shifts.csv?year=2026&month=4` descarga el mismo contenido en CSV con punto y coma y BOM UTF-8.
+
+Ambos aceptan el filtro opcional `post_id`; omitir `month` exporta el año entero. Los turnos pendientes y filas sin resolver quedan excluidos. Tanto el Excel como el CSV exportados se pueden volver a importar: el libro usa `Fecha` + `Entrada`/`Salida`, y el CSV usa fecha/hora ISO, ambos reconocidos por los alias.
 
 ## Límites y futuro
 
-La lectura de Excel y PDF usa una **plantilla genérica** (primera hoja / tabla con más filas). Plantillas reales con cabeceras en varias filas, celdas combinadas, varias hojas o cuadrantes sin tabla detectable requieren un mapeo configurable y deberían validarse con documentos anonimizados de cada plantilla antes de ampliar el soporte.
+La lectura usa una **plantilla genérica**: detecta encabezados por alias, combina las hojas/tablas con cabeceras válidas y tolera títulos previos. El preview rechaza más de 5000 filas con un mensaje claro. No interpreta plantillas con cabeceras repartidas en varias filas, celdas combinadas complejas ni cuadrantes sin tabla detectable. Esos casos requieren un mapeo configurable y deberían validarse con documentos anonimizados antes de ampliar el soporte.
 
 Pendiente, no disponible todavía: OCR de PDF escaneado, reconocimiento de colores (exige una leyenda por plantilla y municipio) y asistencia opcional de LM Studio. La extracción debe ser predecible y cualquier dato ambiguo debe quedar en revisión; nunca un sustituto de las reglas de cálculo deterministas.

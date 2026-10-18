@@ -14,7 +14,7 @@ Mantener el gestor **local** de cuadrantes y horas de seguridad privada. Prioriz
 
 ## Comandos
 
-No hay `requirements.txt`/`pyproject` ni config de lint/typecheck/CI: las dependencias se instalan a mano.
+Existe `requirements.txt`; no hay `pyproject` ni config de lint/typecheck/CI.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -40,12 +40,12 @@ FastAPI se crea con `docs_url=None, redoc_url=None`: **no hay `/docs` ni `/redoc
 ## Detalles que un agente suele malinterpretar
 
 - **Import de `main` inicializa la DB real y carga los festivos oficiales** (`app = create_app()`), sin datos ficticios. En pruebas usa `create_app(tmp_path / "x.sqlite3")`; para otra ruta usa `SHIFTS_DB_PATH`. Nunca borres `data/quadrants.sqlite3` para "reiniciar".
-- **Festivos oficiales precargados** (estatales + Comunitat Valenciana 2025–2026) para `DEFAULT_MUNICIPALITY = "Castelló de la Plana"`, vía `sync_official_holidays()` en `initialize()` (idempotente con `INSERT OR IGNORE`). Incluye los **locales de Castelló 2026** (Magdalena 9-mar, San Pedro 29-jun); los locales de 2025 y de otros municipios se añaden/revisan a mano.
+- **Festivos oficiales** generados por reglas desde 2025 hasta cinco años vista: nacionales y autonómicos replicados a todos los municipios con puestos; locales de Castelló (Magdalena = Pascua−27 días; San Pedro 29-jun trasladado al lunes si cae domingo). `sync_official_holidays()` es idempotente y respeta `dismissed_holidays` para que un borrado no reaparezca.
 - **Horas naive en `Europe/Madrid`**. `parse_local` rechaza horas locales inexistentes/ambiguas por cambio horario y exige precisión de minuto. Franja nocturna 22:00–06:00 (constantes dentro de `shift_metrics`).
-- **Import**: formatos CSV, Excel `.xlsx/.xlsm` y PDF digital con tabla, ≤10 MB, detectados por extensión y **validando la firma real** (zip/`%PDF`). CSV = coma o `;` (autodetectado) + UTF-8 (BOM ok); Excel = primera hoja; PDF = tabla con más filas. La **exportación** `GET /api/exports/shifts.csv` usa `;` + BOM (distinto del import). Rutas: `POST /api/imports/preview` y `/api/imports/confirm` (alias `csv/preview`, `csv/confirm`).
+- **Import**: CSV (UTF-8/Windows-1252/Latin-1; `, ; tab |`), Excel `.xlsx/.xlsm` (elige hoja y fila de encabezados, combina hojas válidas) y PDF digital (combina tablas válidas), ≤10 MB y máx. 5000 filas, validando la firma real. La **exportación** ofrece `GET /api/exports/shifts.xlsx` (recomendado) y `.csv` (`;` + BOM). Rutas: `POST /api/imports/preview` y `/api/imports/confirm`.
 - La normalización de filas es compartida (`normalize_rows` + `IMPORT_ALIASES`); añade nuevos lectores devolviendo `list[dict[str,str]]` y reutiliza el mismo pipeline y la cola de revisión. El preview **no escribe**; la creación va en `/api/imports/confirm`.
 - **La importación auto-crea** el empleado (por `code`) y el puesto (por nombre + municipio) que no existan; el municipio por defecto es `DEFAULT_MUNICIPALITY`. Lo que aún falle (fechas/pausa vacías, etc.) va a `review_items`.
-- **Resumen mensual** (columnas `mes` + `horas totales`): `normalize_rows` lo detecta por `kind="summary"` y se guarda en la tabla `monthly_summaries`. **No son turnos**: no entran en `/api/reports.totals` (aparecen en `reports.summaries`). Formato `;`/`,` y mes en `YYYY-MM` o nombre (es/en) + año.
+- **Resumen mensual** (columnas `mes` + `horas totales`, sin columnas de turno): `normalize_rows` lo detecta por `kind="summary"` y se guarda en `monthly_summaries`. **No son turnos** y se corrigen desde Por revisar con `POST /api/review/{id}/resolve-summary` (no crean turnos). Formato `;`/`,` y mes en `YYYY-MM`, `MM/YYYY` o nombre (es/en) + año.
 - Con pausa, `break_paid` debe ser explícito (manual: obligatorio; CSV: `sí/no`).
 - Solo turnos `status='confirmed'` entran en `/api/reports`; pendientes y `review_items` quedan excluidos. `end_at <= start_at` se rechaza (CHECK + validación).
 - **`POST /api/shifts` inserta el turno ya `confirmed`** (origen `manual`); los importados entran como `pending` y solo pasan a contar con `POST /api/shifts/{id}/confirm`. `PATCH /api/shifts/{id}` solo edita confirmados; `DELETE /api/shifts/{id}` solo descarta pendientes.

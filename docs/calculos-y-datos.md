@@ -5,7 +5,7 @@
 - **Empleado (`employees`)**: UUID, código/ID único, nombre, apellidos, indicador activo y fecha de alta. Se crean a mano o al importar; la app arranca sin datos ficticios.
 - **Puesto (`posts`)**: UUID, nombre, municipio, provincia e indicador activo. La unicidad está definida por nombre y municipio. Es la ubicación operativa a la que se atribuyen festivos locales.
 - **Turno (`shifts`)**: empleado, puesto, inicio y fin locales, pausa opcional, condición remunerada/no remunerada, estado (`pending`/`confirmed`), origen y etiqueta de origen.
-- **Festivo (`holidays`)**: fecha, municipio y nombre. Se precargan los festivos estatales + Comunitat Valenciana 2025–2026 para `Castelló de la Plana` (`sync_official_holidays`, idempotente); incluye los **locales de Castelló 2026** (Magdalena y San Pedro) y los locales de 2025/otros municipios se añaden o revisan a mano.
+- **Festivo (`holidays`)**: fecha, municipio y nombre. Se generan por reglas desde 2025 hasta cinco años vista (`sync_official_holidays`, idempotente): nacionales/autonómicos para todos los municipios con puestos y locales de Castelló (Magdalena y San Pedro). Los locales de otros municipios se añaden o revisan a mano; un festivo descartado no reaparece.
 - **Fila en revisión (`review_items`)**: etiqueta de origen, fila original serializada y lista de incidencias. Sirve para conservar importaciones incompletas antes de la conciliación manual.
 - **Resumen mensual (`monthly_summaries`)**: empleado, puesto opcional, mes (`YYYY-MM`) y minutos totales. Se importa aparte; **no son turnos** y no entran en los totales de horas.
 
@@ -34,12 +34,12 @@ Los informes se calculan al consultar y solo suman turnos confirmados.
 
 `GET /api/reports?year=YYYY&month=MM` ofrece agregados y detalle de turnos confirmados para el periodo. Sin `month`, calcula el año completo. `group_by_employee=false` devuelve además totales diarios compactos. Se pueden añadir búsqueda (`q`) y filtro de puesto (`post_id`).
 
-La exportación implementada es CSV con separador `;`, BOM UTF-8 y duraciones `HH:MM`. En una vista anual hay un detalle diario agregado y los totales anual/por empleado/puesto proceden del mismo conjunto de turnos.
+La exportación implementada ofrece Excel `.xlsx` (recomendado, con fecha/horas separadas y formato condicional de cabecera) y CSV con separador `;`, BOM UTF-8 y duraciones `HH:MM`. En una vista anual hay un detalle diario agregado y los totales anual/por empleado/puesto proceden del mismo conjunto de turnos.
 
 ## Precauciones de dominio
 
 - El CSV de entrada no aporta por sí mismo una semántica legal a las horas ni a las pausas. Confirma las reglas con la empresa y cualquier convenio aplicable antes de usar resultados para nóminas.
-- Los estatales y autonómicos se cargan por defecto; los festivos **locales** dependen de municipio y año y deben verificarse/añadirse. La carga oficial es idempotente pero no certifica exhaustividad.
+- Los nacionales y autonómicos se replican a todos los municipios; los **locales** de Castelló se calculan por reglas y el resto debe verificarse/añadirse. Los años futuros son previsión revisable. La carga oficial es idempotente pero no certifica exhaustividad.
 - No se detectan solapes de turnos entre sí ni se deducen descanso obligatorio, recargos, guardias, vacaciones o cumplimiento normativo.
 - El MVP no guarda por separado planificación frente a realización: los registros se consideran horas reales.
 - Un cambio de municipio de un puesto debe revisarse; no se mantiene un historial temporal de la ubicación.

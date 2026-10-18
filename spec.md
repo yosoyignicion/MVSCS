@@ -68,7 +68,7 @@ Construir una aplicación web de uso local para mantener cuadrantes mensuales, r
 ### 4.4 Festivos y reglas
 
 - Calendario local de festivos mantenido por año con festivos estatales, autonómicos valencianos y locales, asociado por municipio del puesto. La app no debe afirmar que un calendario está completo sin una carga/revisión explícita; permitir edición manual e importación/exportación.
-  - **(Actualizado)** El MVP actual precarga los festivos estatales y autonómicos (Comunitat Valenciana 2025–2026) para Castelló de la Plana al iniciar; los **locales** de cada municipio se añaden/revisan a mano. La precarga es offline e idempotente y no certifica exhaustividad.
+  - **(Actualizado)** El MVP genera por reglas desde 2025 y hasta cinco años vista los festivos nacionales, autonómicos y locales de Castelló; los nacionales/autonómicos se replican a todos los municipios con puestos. La lista de Puestos muestra los próximos festivos y la barra lateral los resume de forma plegable. La generación es offline e idempotente, respeta los festivos descartados y no certifica exhaustividad: los locales de otros municipios se añaden/revisan a mano.
 - Aplicar festivo por la ubicación donde se realizó el turno, incluso si el vigilante trabaja en puestos de municipios distintos.
 - Los sábados y domingos se clasifican aparte; no cuentan como horas festivas salvo que esa fecha esté declarada festiva oficialmente en el calendario local.
 - Configurar zona horaria del centro de trabajo y franja nocturna. Valor inicial sugerido: `Europe/Madrid` y 22:00–06:00 como convención configurable, no como afirmación legal.

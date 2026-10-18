@@ -28,3 +28,108 @@
 .excel-table input[type="datetime-local"]{min-width:168px}
 .excel-table tr.dirty td{background:#fff9e8}
 .excel-table tr.dirty td:first-child{box-shadow:inset 3px 0 #d9a441}
+
+.sidebar-holidays-block{margin-top:22px}
+.sidebar-holidays{display:grid;gap:2px;margin-top:8px;padding:0 4px;max-height:178px;overflow:auto}
+.sidebar-holiday{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;color:#c4d2df;text-decoration:none}
+.sidebar-holiday:hover{background:#192d42}
+.sidebar-holiday-date{display:grid;place-items:center;flex:none;width:30px;padding:3px 0;background:#16293c;border:1px solid #2b4358;border-radius:5px}
+.sidebar-holiday-date strong{color:#eef4f9;font-size:11px;line-height:1}
+.sidebar-holiday-date small{color:#7f95a9;font-size:7px;letter-spacing:.5px}
+.sidebar-holiday-text{display:grid;gap:2px;min-width:0}
+.sidebar-holiday-text strong{overflow:hidden;color:#dbe6f0;font-size:9px;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
+.sidebar-holiday-text small{color:#8196a9;font-size:7px}
+.sidebar-holiday-empty{margin:6px 8px;color:#8196a9;font-size:9px}
+.holiday-year{margin:14px 2px 6px;color:#3b4d60;font-size:9px;font-weight:700;letter-spacing:1px}
+.holiday-list .holiday-row>span{display:grid;gap:2px}
+.holiday-list .holiday-row>span strong{min-width:0;font-weight:500}
+.holiday-list .holiday-row>span small{font-size:8px;color:#92a0ad}
+
+/* Barra lateral: festivos plegables */
+.sidebar-holidays-block{margin-top:16px}
+.sidebar-holidays-block>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:6px;color:#8fa3b7;font-size:9px;font-weight:700;letter-spacing:1.1px;cursor:pointer;list-style:none}
+.sidebar-holidays-block>summary::-webkit-details-marker{display:none}
+.sidebar-holidays-block>summary:hover{background:#192d42}
+.sidebar-holidays-block>summary>span:first-child::before{content:'▸';display:inline-block;margin-right:7px;transition:transform .15s}
+.sidebar-holidays-block[open]>summary>span:first-child::before{transform:rotate(90deg)}
+.sidebar-holidays-count{padding:1px 6px;border-radius:9px;background:#20374e;color:#9fc0d6;font-size:8px}
+.sidebar-holidays{max-height:158px;margin-top:2px}
+
+/* Fecha comentada estilo calendario */
+.calendar-date{display:grid;gap:1px;line-height:1.1}
+.calendar-date strong{color:#2d3d50;font-size:12px;font-weight:700}
+.calendar-date small{color:#92a0ad;font-size:9px}
+.excel-date{display:grid;gap:2px}
+.excel-date input{min-width:138px}
+.date-weekday{color:#92a0ad;font-size:9px;text-transform:capitalize}
+.excel-time-range{display:flex;align-items:center;gap:4px}
+.excel-time-range>span{color:#92a0ad;font-size:9px}
+.excel-table input[type="time"]{width:78px;min-width:78px!important}
+.excel-break{display:grid;gap:3px}
+.excel-table .excel-break select{min-width:92px;font-size:9px}
+
+/* Legibilidad: +2 px en el texto principal (escritorio) */
+@media(min-width:801px){
+  .page-content td{font-size:12px}
+  .page-content th{font-size:10px}
+  .page-content .subheading{font-size:13px}
+  .page-content .employee-name strong{font-size:12px}
+  .page-content .employee-name small{font-size:10px}
+  .page-content .post-cell strong{font-size:12px}
+  .page-content .post-cell small{font-size:10px}
+  .page-content .button{font-size:11px}
+  .page-content .period-label{font-size:12px}
+  .page-content .select-wrap select{font-size:11px}
+  .page-content .stat-label{font-size:9px}
+  .page-content .foot-muted{font-size:10px}
+  .page-content .holiday-row{font-size:12px}
+  .page-content .review-card{font-size:12px}
+  .sidebar .nav-item{font-size:14px}
+  .sidebar .side-label{font-size:10px}
+  .sidebar .workspace strong{font-size:12px}
+  .sidebar .workspace small{font-size:10px}
+  .sidebar .privacy-card strong{font-size:12px}
+  .sidebar .privacy-card small{font-size:10px}
+  .app-dialog label{font-size:11px}
+  .app-dialog input,.app-dialog select{font-size:12px}
+}
+
+/* Cuadrante Excel: columnas fijas y compactas */
+.excel-table{width:100%;table-layout:fixed}
+.excel-table th,.excel-table td{overflow:hidden;text-overflow:ellipsis}
+.excel-table select,.excel-table input{width:100%;min-width:0!important}
+.excel-table input[type="time"]{width:100%;min-width:0!important}
+.excel-date input{width:100%;min-width:0!important}
+.excel-time-range{display:grid;grid-template-columns:1fr auto 1fr;gap:3px}
+.excel-table .excel-break select{width:100%;min-width:0!important}
+.export-format{min-width:132px}
+.export-format select{max-width:106px}
+
+/* Ajuste compacto real de la hoja Excel */
+.excel-table select[data-field="employee_id"]{max-width:140px}
+.excel-table select[data-field="post_id"]{max-width:170px}
+.excel-table input[data-field="date"]{max-width:126px}
+.excel-table input[type="time"]{max-width:66px}
+.excel-table .excel-break select{max-width:140px}
+.compact-controls{gap:12px}
+.compact-controls .post-select{max-width:158px}
+.compact-controls .export-format{min-width:118px}
+.excel-table input,.excel-table select{box-sizing:border-box}
+
+/* Anchos finales de la hoja Excel (zoom 1.2 incluido) */
+.excel-table select[data-field="employee_id"]{max-width:112px}
+.excel-table select[data-field="post_id"]{max-width:128px}
+.excel-table input[data-field="date"]{max-width:104px}
+.excel-time-input{width:50px!important;max-width:50px!important;min-width:0!important;padding:3px 2px!important;text-align:center}
+.excel-table .excel-break select{max-width:92px!important}
+
+/* Cuadrante normal: columnas fijas para que quepan todas */
+.shifts-table{width:100%;table-layout:fixed}
+.shifts-table th,.shifts-table td{padding-right:6px;padding-left:6px;overflow:hidden;text-overflow:ellipsis}
+.shifts-table th{font-size:8px;letter-spacing:.4px}
+.shifts-table .employee-cell,.shifts-table .post-cell{min-width:0}
+.shifts-table .employee-name strong,.shifts-table .employee-name small,.shifts-table .post-cell strong,.shifts-table .post-cell small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shifts-table .row-actions{display:flex;gap:4px}
+
+/* Foco visible accesible */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #317d6d;outline-offset:2px}

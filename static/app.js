@@ -7,6 +7,12 @@ const fmtDate = (value) => new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:
 const fmtTime = (value) => value ? value.slice(11,16) : '—';
 const initials = (name) => name.trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
 const monthStart = () => `${state.date.getFullYear()}-${String(state.date.getMonth()+1).padStart(2,'0')}-01`;
+const capitalize = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+function dateParts(value){const iso=String(value||'').slice(0,10);const d=new Date(`${iso}T12:00:00`);if(Number.isNaN(d.getTime()))return {weekday:'',day:'',month:'',year:''};const short=new Intl.DateTimeFormat('es-ES',{weekday:'short'}).format(d).replace('.','');return {weekday:capitalize(short),day:String(d.getDate()).padStart(2,'0'),month:monthNames[d.getMonth()].slice(0,3),year:d.getFullYear()};}
+function commentedDate(value,withYear=false){const p=dateParts(value);return `${p.weekday} ${p.day} ${p.month}${withYear?` ${p.year}`:''}`.trim();}
+function calendarDateCell(value){const p=dateParts(value);return `<span class="calendar-date"><strong>${esc(p.weekday)} ${esc(p.day)}</strong><small>${esc(p.month)} ${esc(String(p.year))}</small></span>`;}
+function normalizeTimeText(value){const m=String(value||'').trim().replace('.',':').match(/^(\d{1,2}):(\d{2})$/);return m?`${m[1].padStart(2,'0')}:${m[2]}`:String(value||'').trim();}
+function nextDayIso(iso){const d=new Date(`${iso}T12:00:00`);d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 const setMonthLabels = () => {
   const label = state.mode === 'year' ? String(state.date.getFullYear()) : `${monthNames[state.date.getMonth()]} ${state.date.getFullYear()}`;
   $('#period-label').textContent = label.charAt(0).toUpperCase()+label.slice(1);
@@ -22,7 +28,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, method === 'GET' ? { ...options, cache: 'no-store' } : options);
   if (!response.ok) {
     let message = `Error ${response.status}`;
-    try { const body = await response.json(); message = typeof body.detail === 'string' ? body.detail : (body.detail?.message || message); } catch {}
+    try { const body = await response.json(); message = typeof body.detail === 'string' ? body.detail : (Array.isArray(body.detail) ? body.detail.map(item=>item.msg).join('; ') : (body.detail?.message || message)); } catch {}
     throw new Error(message);
   }
   if (response.status === 204) return null;
@@ -39,7 +45,7 @@ let baseSeq = 0;
 let reportSeq = 0;
 async function reloadBase() {
   const seq = ++baseSeq;
-  const result = await Promise.all([api('/api/employees?limit=5000'),api('/api/posts'),api('/api/review'),api(`/api/holidays?year=${state.date.getFullYear()}`)]);
+  const result = await Promise.all([api('/api/employees?limit=5000'),api('/api/posts'),api('/api/review'),api('/api/holidays')]);
   if (seq !== baseSeq) return;
   [state.employees,state.posts,state.review,state.holidays] = result;
   fillSelects(); renderEmployees(); renderPosts(); renderReview(); renderHolidays();
@@ -53,7 +59,8 @@ function fillSelects() {
   const shiftPost=$('#shift-post'); shiftPost.innerHTML='<option value="">Selecciona puesto</option>'+opts;
   const shiftEmployee=$('#shift-employee'); shiftEmployee.innerHTML='<option value="">Selecciona empleado</option>'+state.employees.map(e=>`<option value="${esc(e.id)}">${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');
 }
-async function reloadReport() {
+async function reloadReport(force = false) {
+  if(force !== true && $$('#excel-body tr.dirty').length && !window.confirm('Hay cambios sin guardar en la vista Excel. ¿Descartarlos?')) return;
   const seq = ++reportSeq;
   setMonthLabels();
   const post = selectedPost(); const search = $('#employee-search').value.trim();
@@ -82,7 +89,7 @@ function renderReport() {
   }).join('');
   const empty=displayShifts.length===0; $('#activity-empty').classList.toggle('hidden',!empty); $('#activity-body').closest('.table-scroll').classList.toggle('hidden',empty); $('.table-footer').classList.toggle('hidden',empty);
   renderHolidays();
-  renderPostsSummary(report.posts,report.totals.minutes); renderShiftTable(report); renderSummaries(report.summaries);
+  renderPostsSummary(report.posts,report.totals.minutes); renderShiftTable(report); renderSummaries(report.summaries); renderEmployees();
 }
 function renderSummaries(summaries){
   const card=$('#summaries-card'), heading=$('#summaries-heading'); if(!card)return;
@@ -98,7 +105,7 @@ function renderPostsSummary(posts,total) {
 function renderShiftTable(report) {
   const body=$('#shifts-body');
   const rows=state.mode==='year'?(report.days||[]).map(day=>({id:null,employee_code:`${day.shift_count} turnos`,first_name:'Total diario',last_name:'',post_name:'Todos los puestos',municipality:'Comunitat Valenciana',start_at:`${day.date}T00:00`,end_at:`${day.date}T00:00`,minutes:day.minutes,night_minutes:day.night_minutes,holiday_minutes:day.holiday_minutes})):report.shifts;
-  body.innerHTML=rows.slice(0,1000).map(s=>`<tr data-shift-row="${esc(s.id)}"><td class="check-col">${s.id?`<input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno de ${esc(`${s.first_name} ${s.last_name}`.trim())}">`:''}</td><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)}</small></span></td><td>${esc(s.start_at.slice(0,10))}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' · pagada':''}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<div class="row-actions"><button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button><button class="shift-edit" data-review-shift="${esc(s.id)}">Revisión</button></div>`}</td></tr>`).join('');
+  body.innerHTML=rows.slice(0,1000).map(s=>`<tr data-shift-row="${esc(s.id)}"><td class="check-col">${s.id?`<input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno de ${esc(`${s.first_name} ${s.last_name}`.trim())}">`:''}</td><td><div class="employee-cell"><span class="employee-avatar">${esc(initials(`${s.first_name} ${s.last_name}`))}</span><span class="employee-name"><strong>${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.employee_code)}</small></span></div></td><td><span class="post-cell"><strong>${esc(s.post_name)}</strong><small>${esc(s.municipality)}</small></span></td><td>${calendarDateCell(s.start_at)}</td><td><span class="time-cell">${state.mode==='year'?'—':`${esc(fmtTime(s.start_at))} — ${esc(fmtTime(s.end_at))}`}</span></td><td>${state.mode==='year'?'—':(s.break_start_at?`${esc(fmtTime(s.break_start_at))}–${esc(fmtTime(s.break_end_at))}${s.break_paid?' · pagada':''}`:'—')}</td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td>${state.mode==='year'?'—':`<div class="row-actions"><button class="shift-edit" data-edit-shift="${esc(s.id)}">Editar</button><button class="shift-edit" data-review-shift="${esc(s.id)}">Revisión</button></div>`}</td></tr>`).join('');
   $('#shifts-empty').classList.toggle('hidden',rows.length>0);
   $('#shifts-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
   renderExcelTable(report);
@@ -108,9 +115,9 @@ function renderShiftTable(report) {
 function renderExcelTable(report) {
   const body=$('#excel-body'); if(!body)return;
   const rows=state.mode==='month'?report.shifts:[];
-  const employeeOptions=(selected)=>state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');
-  const postOptions=(selected)=>state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('');
-  body.innerHTML=rows.map(s=>`<tr data-shift-row="${esc(s.id)}" data-shift-id="${esc(s.id)}"><td class="check-col"><input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno"></td><td><select data-field="employee_id">${employeeOptions(s.employee_id)}</select></td><td><select data-field="post_id">${postOptions(s.post_id)}</select></td><td><input data-field="start_at" type="datetime-local" value="${esc(s.start_at.slice(0,16))}"></td><td><input data-field="end_at" type="datetime-local" value="${esc(s.end_at.slice(0,16))}"></td><td><input data-field="break_start_at" type="datetime-local" value="${esc((s.break_start_at||'').slice(0,16))}"></td><td><input data-field="break_end_at" type="datetime-local" value="${esc((s.break_end_at||'').slice(0,16))}"></td><td><select data-field="break_paid"><option value="false" ${!s.break_paid?'selected':''}>No</option><option value="true" ${s.break_paid?'selected':''}>Sí</option></select></td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td><button class="shift-edit" type="button" data-review-shift="${esc(s.id)}">Revisión</button></td></tr>`).join('');
+  const employeeOptions=(selected)=>{const known=state.employees.some(e=>e.id===selected);return (selected&&!known?`<option value="${esc(selected)}" selected>ID desconocido</option>`:'')+state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('');};
+  const postOptions=(selected)=>{const known=state.posts.some(p=>p.id===selected);return (selected&&!known?`<option value="${esc(selected)}" selected>Puesto desconocido</option>`:'')+state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('');};
+  body.innerHTML=rows.map(s=>`<tr data-shift-row="${esc(s.id)}" data-shift-id="${esc(s.id)}"><td class="check-col"><input type="checkbox" data-select-shift="${esc(s.id)}" aria-label="Seleccionar turno"></td><td><div class="excel-date"><input data-field="date" type="date" value="${esc(s.start_at.slice(0,10))}"><small class="date-weekday">${esc(commentedDate(s.start_at))}</small></div></td><td><select data-field="employee_id">${employeeOptions(s.employee_id)}</select></td><td><select data-field="post_id">${postOptions(s.post_id)}</select></td><td><div class="excel-time-range"><input class="excel-time-input" data-field="start_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.start_at.slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="end_time" type="text" inputmode="numeric" maxlength="5" value="${esc(s.end_at.slice(11,16))}"></div></td><td><div class="excel-break"><div class="excel-time-range"><input class="excel-time-input" data-field="break_start_time" type="text" inputmode="numeric" maxlength="5" value="${esc((s.break_start_at||'').slice(11,16))}"><span>—</span><input class="excel-time-input" data-field="break_end_time" type="text" inputmode="numeric" maxlength="5" value="${esc((s.break_end_at||'').slice(11,16))}"></div><select data-field="break_paid"><option value="false" ${!s.break_paid?'selected':''}>No pagada</option><option value="true" ${s.break_paid?'selected':''}>Pagada</option></select></div></td><td><strong class="duration-cell">${toHHMM(s.minutes)}</strong></td><td>${toHHMM(s.night_minutes)}</td><td>${toHHMM(s.holiday_minutes)}</td><td><button class="shift-edit" type="button" data-review-shift="${esc(s.id)}">Revisión</button></td></tr>`).join('');
   $('#excel-empty').classList.toggle('hidden',rows.length>0);
   $('#excel-body').closest('.table-scroll').classList.toggle('hidden',rows.length===0);
 }
@@ -149,19 +156,27 @@ async function saveExcelChanges() {
   const errors=[];
   for(const row of rows){
     const value=(name)=>row.querySelector(`[data-field="${name}"]`)?.value||'';
-    const breakStart=value('break_start_at');
-    const payload={employee_id:value('employee_id'),post_id:value('post_id'),start_at:value('start_at'),end_at:value('end_at'),break_start_at:breakStart||null,break_end_at:value('break_end_at')||null,break_paid:breakStart?value('break_paid')==='true':false};
+    const day=value('date');const startTime=normalizeTimeText(value('start_time'));const endTime=normalizeTimeText(value('end_time'));
+    if(!day||!startTime||!endTime){errors.push('Fecha u horario incompletos');continue;}
+    const startAt=`${day}T${startTime}`;
+    const endAt=endTime<=startTime?`${nextDayIso(day)}T${endTime}`:`${day}T${endTime}`;
+    const breakStartTime=normalizeTimeText(value('break_start_time'));const breakEndTime=normalizeTimeText(value('break_end_time'));
+    if(Boolean(breakStartTime)!==Boolean(breakEndTime)){errors.push('Indica inicio y fin de pausa');continue;}
+    const breakStartAt=breakStartTime?`${day}T${breakStartTime}`:null;
+    const breakEndAt=breakEndTime?(breakEndTime<=breakStartTime?`${nextDayIso(day)}T${breakEndTime}`:`${day}T${breakEndTime}`):null;
+    const payload={employee_id:value('employee_id'),post_id:value('post_id'),start_at:startAt,end_at:endAt,break_start_at:breakStartAt,break_end_at:breakEndAt,break_paid:breakStartAt?value('break_paid')==='true':false};
     try{await api(`/api/shifts/${row.dataset.shiftId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
     catch(error){errors.push(error.message);}
   }
-  await reloadReport();
+  await reloadReport(true);
   toast(errors.length?`No se guardó todo: ${errors[0]}`:`${rows.length} turno(s) actualizados.`);
 }
 function renderEmployees() {
   const q=($('#employees-search')?.value||'').trim().toLocaleLowerCase('es');
   const people=state.employees.filter(e=>`${e.code} ${e.first_name} ${e.last_name}`.toLocaleLowerCase('es').includes(q));
   $('#employee-total').textContent=`${people.length} empleado${people.length===1?'':'s'}`;
-  $('#employee-grid').innerHTML=people.map(e=>`<article class="person-card"><div class="person-card-top"><span class="employee-avatar">${esc(initials(`${e.first_name} ${e.last_name}`))}</span><span class="employee-name"><strong>${esc(`${e.first_name} ${e.last_name}`.trim())}</strong><small>Vigilante de seguridad</small></span><span class="person-card-code">${esc(e.code)}</span></div><div class="person-metrics"><span class="person-metric"><strong data-emp-hours="${esc(e.id)}">—</strong><small>HORAS MES</small></span><span class="person-metric"><strong data-emp-night="${esc(e.id)}">—</strong><small>NOCTURNAS</small></span><span class="person-metric"><strong data-emp-holiday="${esc(e.id)}">—</strong><small>FESTIVAS</small></span></div><button class="text-button employee-report" data-code="${esc(e.code)}">Ver actividad →</button></article>`).join('') || '<div class="table-empty"><strong>No hay empleados coincidentes</strong></div>';
+  $('#employee-grid').innerHTML=people.map(e=>`<article class="person-card"><div class="person-card-top"><span class="employee-avatar">${esc(initials(`${e.first_name} ${e.last_name}`))}</span><span class="employee-name"><strong>${esc(`${e.first_name} ${e.last_name}`.trim())}</strong><small>Vigilante de seguridad</small></span><span class="person-card-code">${esc(e.code)}</span></div><div class="person-metrics"><span class="person-metric"><strong data-emp-hours="${esc(e.id)}">—</strong><small data-hours-label>HORAS MES</small></span><span class="person-metric"><strong data-emp-night="${esc(e.id)}">—</strong><small>NOCTURNAS</small></span><span class="person-metric"><strong data-emp-holiday="${esc(e.id)}">—</strong><small>FESTIVAS</small></span></div><button class="text-button employee-report" data-code="${esc(e.code)}">Ver actividad →</button></article>`).join('') || '<div class="table-empty"><strong>No hay empleados coincidentes</strong></div>';
+  $$('[data-hours-label]').forEach(el=>{el.textContent=state.mode==='year'?'HORAS AÑO':'HORAS MES'});
   for(const e of people){
     const row=state.report?.employees.find(item=>item.employee_id===e.id);
     const hours=$(`[data-emp-hours="${CSS.escape(e.id)}"]`); if(hours)hours.textContent=row?.hours||'00:00';
@@ -172,8 +187,29 @@ function renderEmployees() {
 function renderPosts() {
   $('#post-grid').innerHTML=state.posts.map(p=>`<article class="post-card"><div class="post-card-top"><span class="stat-icon icon-green">⌖</span><span class="employee-name"><strong>${esc(p.name)}</strong><small>Puesto de vigilancia</small></span></div><p class="post-location">${esc(p.municipality)} · ${esc(p.province)}</p><div class="post-card-foot">Festivos aplicados por municipio · Calendario manual</div></article>`).join('') || '<div class="table-empty"><strong>Aún no hay puestos</strong><small>Añade una instalación para empezar.</small></div>';
 }
-async function reloadHolidays(){state.holidays=await api(`/api/holidays?year=${state.date.getFullYear()}`);renderHolidays();}
-function renderHolidays(){const root=$('#holiday-list');if(!root)return;const rows=(state.holidays||[]).filter(h=>state.mode==='year'||Number(h.date.slice(5,7))===state.date.getMonth()+1);root.innerHTML=rows.map(h=>`<div class="holiday-row"><strong>${esc(h.date)}</strong><span>${esc(h.name)}</span><small>${esc(h.municipality)}</small><button type="button" aria-label="Eliminar festivo" data-delete-holiday="${esc(h.id)}">Eliminar</button></div>`).join('')||'<p class="subheading">No hay festivos para este periodo. Se cargan los estatales y autonómicos; revisa y añade los locales de cada municipio.</p>';}
+async function reloadHolidays(){state.holidays=await api('/api/holidays');renderHolidays();}
+function todayIso(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function upcomingHolidays(limit){const today=todayIso();const rows=(state.holidays||[]).filter(h=>h.date>=today).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name,'es'));return limit?rows.slice(0,limit):rows;}
+function holidayDayMonth(iso){const d=new Date(`${iso}T12:00:00`);return {day:String(d.getDate()).padStart(2,'0'),month:monthNames[d.getMonth()].slice(0,3).toUpperCase(),year:d.getFullYear(),weekday:new Intl.DateTimeFormat('es-ES',{weekday:'short'}).format(d)};}
+function renderSidebarHolidays(){
+  const root=$('#sidebar-holidays'); if(!root)return;
+  const all=upcomingHolidays();const rows=all.slice(0,4);
+  const count=$('#sidebar-holidays-count');if(count)count.textContent=String(all.length);
+  root.innerHTML=rows.map(h=>{const d=holidayDayMonth(h.date);return `<a class="sidebar-holiday" href="#puestos" data-holiday-link><span class="sidebar-holiday-date"><strong>${d.day}</strong><small>${esc(d.month)}</small></span><span class="sidebar-holiday-text"><strong>${esc(h.name)}</strong><small>${d.year} · ${esc(d.weekday)}</small></span></a>`;}).join('')||'<p class="sidebar-holiday-empty">Sin festivos próximos.</p>';
+}
+function renderHolidays(){
+  const root=$('#holiday-list');if(!root)return;
+  const rows=upcomingHolidays();
+  if(!rows.length){root.innerHTML='<p class="subheading">No hay festivos próximos. Añade los locales de cada municipio.</p>';renderSidebarHolidays();return;}
+  let year='';
+  root.innerHTML=rows.map(h=>{
+    const d=holidayDayMonth(h.date);
+    const yearRow=d.year!==year?`<div class="holiday-year">${d.year}</div>`:'';
+    year=d.year;
+    return `${yearRow}<div class="holiday-row"><strong>${esc(h.date)}</strong><span><strong>${esc(h.name)}</strong><small>${esc(h.municipality)}</small></span><button type="button" aria-label="Eliminar festivo" data-delete-holiday="${esc(h.id)}">Eliminar</button></div>`;
+  }).join('');
+  renderSidebarHolidays();
+}
 
 function renderReview() {
   const root=$('#review-list'); const items=state.review||[];
@@ -184,7 +220,12 @@ function renderReview() {
       const s=item.shift;
       return `<article class="review-card"><div class="review-card-head"><div class="review-source"><strong>${esc(s.employee_code)} · ${esc(`${s.first_name} ${s.last_name}`.trim())}</strong><small>${esc(s.source_label||'Importación CSV')} · ${esc(s.post_name)} · ${esc(s.municipality)} · ${esc(s.start_at.slice(0,10))} · ${esc(fmtTime(s.start_at))}–${esc(fmtTime(s.end_at))}</small></div><span class="pill pill-pending">Pendiente de confirmar</span></div><div class="review-card-actions"><button class="button button-secondary" data-discard-shift="${esc(s.id)}">Descartar</button><button class="button button-primary" data-confirm-shift="${esc(s.id)}">Confirmar turno</button></div></article>`;
     }
-    const raw=item.raw||{}; const row=raw;
+    const raw=item.raw||{};
+    if(raw.kind==='summary'){
+      const selected=raw.employee_id||(state.employees.find(e=>e.code===raw.employee_code)?.id||'');
+      return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(raw.employee_label||raw.employee_code||'Resumen mensual')}</strong><small>Resumen mensual · ${esc(raw.post_name||'Sin puesto')} · ${esc(raw.municipality||'')}</small></div><span class="pill pill-pending">Resumen mensual</span></div><div class="review-errors">${(item.errors||[]).map(esc).join('<br>')}</div><div class="review-fields"><label>Empleado<select data-field="summary_employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===selected?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Mes<input data-field="summary_month" autocomplete="off" placeholder="2026-07" value="${esc(raw.month||'')}"></label><label>Horas totales<input data-field="summary_hours" autocomplete="off" placeholder="200 o 200:00" value="${esc(raw.hours||'')}"></label></div><div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-summary="${esc(item.id)}">Guardar resumen</button></div></article>`;
+    }
+    const row=raw;
     const emp=state.employees.find(e=>e.id===row.employee_id);
     const post=state.posts.find(p=>p.id===row.post_id);
     return `<article class="review-card" data-review-card="${esc(item.id)}"><div class="review-card-head"><div class="review-source"><strong>${esc(item.source_label)}</strong><small>La fila necesita que completes o corrijas los campos.</small></div><span class="pill pill-pending">Revisión necesaria</span></div><div class="review-errors">${(item.errors||[]).map(esc).join('<br>')}</div><div class="review-fields"><label>Empleado<select data-field="employee_id"><option value="">Seleccionar</option>${state.employees.map(e=>`<option value="${esc(e.id)}" ${e.id===row.employee_id?'selected':''}>${esc(e.code)} · ${esc(`${e.first_name} ${e.last_name}`.trim())}</option>`).join('')}</select></label><label>Puesto<select data-field="post_id"><option value="">Seleccionar</option>${state.posts.map(p=>`<option value="${esc(p.id)}" ${p.id===row.post_id?'selected':''}>${esc(p.name)} · ${esc(p.municipality)}</option>`).join('')}</select></label><label>Entrada<input data-field="start_at" type="datetime-local" autocomplete="off" value="${esc(row.start_at||'')}"></label><label>Salida<input data-field="end_at" type="datetime-local" autocomplete="off" value="${esc(row.end_at||'')}"></label><label>Inicio pausa<input data-field="break_start_at" type="datetime-local" autocomplete="off" value="${esc(row.break_start_at||'')}"></label><label>Fin pausa<input data-field="break_end_at" type="datetime-local" autocomplete="off" value="${esc(row.break_end_at||'')}"></label><label>Pausa remunerada<select data-field="break_paid"><option value="false" ${row.break_paid===false?'selected':''}>No</option><option value="true" ${row.break_paid===true?'selected':''}>Sí</option></select></label></div><div class="review-card-actions"><button class="button button-secondary" data-discard-review="${esc(item.id)}">Descartar</button><button class="button button-primary" data-resolve-review="${esc(item.id)}">Corregir y confirmar</button></div></article>`;
@@ -202,6 +243,8 @@ async function loadAll() { setMonthLabels();  await reloadBase(); await reloadRe
 function openDialog(id){const dialog=$(id);dialog.showModal();}
 function closeDialogs(){ $$('dialog').forEach(d=>d.close()); }
 function navigate(view){
+  const aliases={inicio:'overview',cuadrante:'shifts',empleados:'employees',puestos:'posts',revision:'review'};
+  view=aliases[view]||view;
   const valid=['overview','shifts','employees','posts','review'];
   if(!valid.includes(view))return;
   $$('[data-page]').forEach(section=>section.classList.toggle('hidden',section.dataset.page!==view));
@@ -224,7 +267,7 @@ async function previewAndImport(file){
   try{const preview=await api('/api/imports/preview',{method:'POST',body:form});
     const rows=preview.rows.map(row=>({...row,break_paid:row.break_paid??false}));
     const result=await api('/api/imports/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows,filename:preview.filename,source:preview.kind||'csv'})});
-    await reloadReview(); await reloadReport();
+    await reloadBase(); await reloadReview(); await reloadReport();
     const parts=[];
     if(result.pending)parts.push(`${result.pending} turno(s) pendiente(s) de confirmación`);
     if(result.summaries)parts.push(`${result.summaries} resumen(es) mensual(es) guardado(s)`);
@@ -254,9 +297,10 @@ $$('[data-navigate]').forEach(button=>button.addEventListener('click',()=>naviga
 $$('[data-open-shift]').forEach(button=>button.addEventListener('click',()=>openShift()));
 $$('[data-close-dialog]').forEach(button=>button.addEventListener('click',closeDialogs));
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
-$('#prev-month').addEventListener('click',async()=>{state.mode==='year'?state.date.setFullYear(state.date.getFullYear()-1):state.date.setMonth(state.date.getMonth()-1);await reloadBase();await reloadReport()});
-$('#next-month').addEventListener('click',async()=>{state.mode==='year'?state.date.setFullYear(state.date.getFullYear()+1):state.date.setMonth(state.date.getMonth()+1);await reloadBase();await reloadReport()});
-$$('[data-month-step]').forEach(button=>button.addEventListener('click',async()=>{state.mode==='year'?state.date.setFullYear(state.date.getFullYear()+Number(button.dataset.monthStep)):state.date.setMonth(state.date.getMonth()+Number(button.dataset.monthStep));await reloadBase();await reloadReport()}));
+function stepPeriod(delta){const year=state.date.getFullYear();if(state.mode==='year'){state.date=new Date(year+delta,0,1);}else{state.date=new Date(year,state.date.getMonth()+delta,1);}}
+$('#prev-month').addEventListener('click',async()=>{stepPeriod(-1);await reloadBase();await reloadReport()});
+$('#next-month').addEventListener('click',async()=>{stepPeriod(1);await reloadBase();await reloadReport()});
+$$('[data-month-step]').forEach(button=>button.addEventListener('click',async()=>{stepPeriod(Number(button.dataset.monthStep));await reloadBase();await reloadReport()}));
 $$('#period-mode,.period-select').forEach(select=>select?.addEventListener('change',async()=>{state.mode=select.value;$$('#period-mode,.period-select').forEach(item=>{if(item)item.value=state.mode});await reloadReport()}));
 $('#post-filter').addEventListener('change',reloadReport);
 $$('.post-select').forEach(el=>el.addEventListener('change',e=>{ $('#post-filter').value=e.target.value;reloadReport();}));
@@ -268,7 +312,8 @@ $('#add-post').addEventListener('click',()=>{ $('#post-form').reset();clearError
 $('#employee-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api('/api/employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});closeDialogs();await loadAll();toast('Empleado guardado correctamente.')}catch(err){showError($('#employee-error'),err.message)}});
 $('#post-form').addEventListener('submit',async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget));try{await api('/api/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});closeDialogs();await loadAll();toast('Puesto guardado correctamente.')}catch(err){showError($('#post-error'),err.message)}});
 $('#shift-form').addEventListener('submit',async e=>{e.preventDefault();clearError($('#shift-error'));const breakStart=$('#break-start').value||null;const data={employee_id:$('#shift-employee').value,post_id:$('#shift-post').value,start_at:$('#shift-start').value,end_at:$('#shift-end').value,break_start_at:breakStart,break_end_at:$('#break-end').value||null,break_paid:breakStart?$('#break-paid').value==='true':false};try{await api(state.editingShift?`/api/shifts/${state.editingShift}`:'/api/shifts',{method:state.editingShift?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});closeDialogs();await loadAll();toast(state.editingShift?'Turno actualizado.':'Turno guardado y sumado a los totales.');state.editingShift=null;}catch(err){showError($('#shift-error'),err.message)}});
-$('#export-csv').addEventListener('click',()=>{const params=new URLSearchParams({year:String(state.date.getFullYear())});if(state.mode==='month')params.set('month',String(state.date.getMonth()+1));if(selectedPost())params.set('post_id',selectedPost());window.location.href=`/api/exports/shifts.csv?${params}`});
+function exportQuery(){const params=new URLSearchParams({year:String(state.date.getFullYear())});if(state.mode==='month')params.set('month',String(state.date.getMonth()+1));if(selectedPost())params.set('post_id',selectedPost());return params;}
+$('#export-file').addEventListener('click',()=>{const format=$('#export-format').value==='csv'?'csv':'xlsx';window.location.href=`/api/exports/shifts.${format}?${exportQuery()}`});
 $('#choose-csv').addEventListener('click',()=>$('#csv-file').click());
 $('#csv-file').addEventListener('change',e=>{previewAndImport(e.target.files[0]);e.target.value=''});
 $$('.csv-inline').forEach(input=>input.addEventListener('change',e=>{previewAndImport(e.target.files[0]);e.target.value=''}));
@@ -276,11 +321,12 @@ $('#drop-zone').addEventListener('dragover',e=>{e.preventDefault();e.currentTarg
 $('#drop-zone').addEventListener('click',e=>{if(e.target.closest('button'))return;$('#csv-file').click()});
 $('#break-start').addEventListener('input',()=>$('#break-paid-label').classList.toggle('hidden',!$('#break-start').value));$('#break-end').addEventListener('input',()=>$('#break-paid-label').classList.toggle('hidden',!$('#break-end').value));
 $('#review-list').addEventListener('click',async e=>{
-  const confirm=e.target.closest('[data-confirm-shift]');const discardShift=e.target.closest('[data-discard-shift]');const resolve=e.target.closest('[data-resolve-review]');const discard=e.target.closest('[data-discard-review]');
+  const confirm=e.target.closest('[data-confirm-shift]');const discardShift=e.target.closest('[data-discard-shift]');const resolve=e.target.closest('[data-resolve-review]');const resolveSummary=e.target.closest('[data-resolve-summary]');const discard=e.target.closest('[data-discard-review]');
   try{
     if(confirm){await api(`/api/shifts/${confirm.dataset.confirmShift}/confirm`,{method:'POST'});toast('Turno confirmado y contabilizado.')}
     if(discardShift){await api(`/api/shifts/${discardShift.dataset.discardShift}`,{method:'DELETE'});toast('Turno pendiente descartado.')}
     if(discard){await api(`/api/review/${discard.dataset.discardReview}`,{method:'DELETE'});toast('Fila descartada.')}
+    if(resolveSummary){const card=resolveSummary.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const data={employee_id:value('summary_employee_id'),month:value('summary_month'),hours:value('summary_hours')};await api(`/api/review/${resolveSummary.dataset.resolveSummary}/resolve-summary`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Resumen mensual corregido y guardado.')}
     if(resolve){const card=resolve.closest('[data-review-card]');const value=(name)=>card.querySelector(`[data-field="${name}"]`)?.value||'';const breakStart=value('break_start_at');const data={employee_id:value('employee_id'),post_id:value('post_id'),start_at:value('start_at'),end_at:value('end_at'),break_start_at:breakStart||null,break_end_at:value('break_end_at')||null,break_paid:breakStart?value('break_paid')==='true':false};await api(`/api/review/${resolve.dataset.resolveReview}/resolve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Fila corregida y confirmada.')}
     await reloadBase();await reloadReport();
   }catch(err){toast(err.message)}
@@ -302,7 +348,7 @@ $('#shifts-view').addEventListener('change',e=>{
   const all=e.target.closest('.select-all-shifts');
   if(all){const ids=(state.report?.shifts||[]).map(s=>s.id);state.selectedShifts=new Set(all.checked?ids:[]);syncShiftSelection();return;}
   const field=e.target.closest('#excel-body [data-field]');
-  if(field)field.closest('tr').classList.add('dirty');
+  if(field){const row=field.closest('tr');row.classList.add('dirty');if(field.dataset.field==='date'){const label=row.querySelector('.date-weekday');if(label)label.textContent=commentedDate(field.value);}}
 });
 $('#toggle-excel').addEventListener('click',()=>{if(state.mode==='year')return;state.excelView=!state.excelView;updateShiftView();syncShiftSelection();});
 $('#excel-save').addEventListener('click',saveExcelChanges);

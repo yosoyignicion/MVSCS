@@ -5,3 +5,4 @@ openpyxl
 pymupdf
 pytest
 httpx
+tzdata; sys_platform == "win32"

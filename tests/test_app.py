@@ -363,3 +363,251 @@ def test_confirmed_shifts_can_be_sent_to_review_individually_and_in_bulk(client)
 
     again = test_client.post("/api/shifts/review", json={"ids": [first.json()["id"]]})
     assert again.json()["updated"] == 0
+
+
+def test_future_holidays_are_generated_from_rules(client):
+    test_client, _ = client
+    rows_2030 = test_client.get("/api/holidays", params={"year": 2030, "municipality": "Castelló de la Plana"}).json()
+    dates = {row["date"] for row in rows_2030}
+    assert "2030-01-01" in dates  # Año Nuevo
+    assert "2030-03-19" in dates  # San José (autonómico)
+    assert "2030-04-19" in dates  # Viernes Santo
+    assert "2030-04-22" in dates  # Lunes de Pascua
+    assert "2030-03-25" in dates  # Magdalena (local calculada)
+    assert "2030-06-29" in dates  # San Pedro (local)
+    assert "2030-10-09" in dates  # Comunitat Valenciana
+    assert "2030-12-25" in dates  # Navidad
+
+    dates_2031 = {row["date"] for row in test_client.get("/api/holidays", params={"year": 2031}).json()}
+    assert "2031-06-30" in dates_2031  # San Pedro cae domingo: se traslada al lunes
+    assert "2031-06-29" not in dates_2031
+
+
+def test_exported_xlsx_can_be_reimported(client):
+    import openpyxl
+
+    test_client, _ = client
+    employee, post = setup_people(client)
+    assert add_shift(test_client, employee, post, start_at="2026-04-12T22:00", end_at="2026-04-13T06:00", break_start_at=None, break_end_at=None).status_code == 201
+
+    export = test_client.get("/api/exports/shifts.xlsx", params={"year": 2026, "month": 4})
+    assert export.status_code == 200
+    assert export.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    workbook = openpyxl.load_workbook(io.BytesIO(export.content), read_only=True)
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    workbook.close()
+    assert rows[0][0] == "ID empleado"
+    assert rows[1][5] == "2026-04-12"
+    assert rows[1][6] == "22:00"
+    assert rows[1][7] == "06:00"
+
+    preview = test_client.post("/api/imports/preview", files={"file": ("cuadrante-2026-04.xlsx", export.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_id"] == employee["id"]
+    assert row["post_id"] == post["id"]
+    assert row["start_at"] == "2026-04-12T22:00"
+    assert row["end_at"] == "2026-04-13T06:00"
+
+
+def test_csv_windows_encoding_title_row_and_spanish_date_are_accepted(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    content = (
+        "LISTADO DE TURNOS\n\n"
+        "ID;Empleado;Apellidos;Puesto;Municipio;Fecha;Hora entrada;Hora salida\n"
+        f"{employee['code']};Álvaro;Vigilante;{post['name']};{post['municipality']};12/04/2026;22:00;06:00\n"
+    ).encode("cp1252")
+    preview = test_client.post("/api/imports/preview", files={"file": ("turnos.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_name"] == "Álvaro Vigilante"
+    assert row["start_at"] == "2026-04-12T22:00"
+    assert row["end_at"] == "2026-04-13T06:00"
+
+
+def test_xlsx_finds_header_after_title_and_reads_excel_serial_date(client):
+    import openpyxl
+
+    test_client, _ = client
+    employee, post = setup_people(client)
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["CUADRANTE MENSUAL"])
+    sheet.append([])
+    sheet.append(["ID", "Nombre", "Apellidos", "Puesto", "Municipio", "Fecha", "Entrada", "Salida"])
+    sheet.append([employee["code"], "Ana", "Vigilante", post["name"], post["municipality"], 46124, 0.5, 0.75])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    preview = test_client.post("/api/imports/preview", files={"file": ("turnos.xlsx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["employee_name"] == "Ana Vigilante"
+    assert row["start_at"] == "2026-04-12T12:00"
+    assert row["end_at"] == "2026-04-12T18:00"
+
+
+def test_national_holiday_applies_to_non_default_municipality(client):
+    test_client, _ = client
+    employee, post = setup_people(client)  # puesto en València
+    shift = add_shift(test_client, employee, post, start_at="2026-01-01T08:00", end_at="2026-01-01T16:00", break_start_at=None, break_end_at=None)
+    assert shift.status_code == 201
+    report = test_client.get("/api/reports", params={"year": 2026, "month": 1}).json()
+    assert report["totals"]["holiday_hours"] == "08:00"
+    valencia = test_client.get("/api/holidays", params={"year": 2026, "municipality": "València"}).json()
+    dates = {row["date"] for row in valencia}
+    assert "2026-01-01" in dates
+    assert "2026-03-09" not in dates  # Magdalena es local de Castelló
+
+
+def test_import_end_datetime_is_honored_and_32h_is_rejected(client):
+    test_client, _ = client
+    employee, post = setup_people(client)
+    good = (
+        "id;puesto;municipio;entrada;salida\n"
+        f"{employee['code']};{post['name']};{post['municipality']};2026-04-12T22:00;2026-04-13T06:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("turnos.csv", good, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["end_at"] == "2026-04-13T06:00"
+
+    long = (
+        "id;puesto;municipio;entrada;salida\n"
+        f"{employee['code']};{post['name']};{post['municipality']};2026-04-12T08:00;2026-04-13T16:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("largo.csv", long, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "pending"
+    assert any("24 horas" in error for error in row["errors"])
+
+
+def test_summary_invalid_hours_do_not_crash(client):
+    test_client, _ = client
+    employee, _ = setup_people(client)
+    content = (
+        "id;mes;horas totales\n"
+        f"{employee['code']};2026-07;-5\n"
+        f"{employee['code']};2026-08;inf\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("resumen.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["pending"] == 2
+    assert all(row["status"] == "pending" for row in preview.json()["rows"])
+
+
+def test_xlsx_multiple_sheets_are_combined(client):
+    import openpyxl
+
+    test_client, _ = client
+    employee, post = setup_people(client)
+    workbook = openpyxl.Workbook()
+    first = workbook.active
+    first.title = "Enero"
+    first.append(["id", "puesto", "municipio", "fecha", "entrada", "salida"])
+    first.append([employee["code"], post["name"], post["municipality"], "2026-04-12", "08:00", "16:00"])
+    second = workbook.create_sheet("Febrero")
+    second.append(["id", "puesto", "municipio", "fecha", "entrada", "salida"])
+    second.append([employee["code"], post["name"], post["municipality"], "2026-04-13", "08:00", "16:00"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    preview = test_client.post("/api/imports/preview", files={"file": ("dos-hojas.xlsx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["count"] == 2
+
+
+def test_deleted_generated_holiday_survives_restart(tmp_path):
+    db_path = tmp_path / "reinicio.sqlite3"
+    app = create_app(db_path)
+    with TestClient(app) as test_client:
+        rows = test_client.get("/api/holidays", params={"year": 2030, "municipality": "Castelló de la Plana"}).json()
+        holiday = next(row for row in rows if row["date"] == "2030-01-01")
+        assert test_client.delete(f"/api/holidays/{holiday['id']}").status_code == 204
+        rows = test_client.get("/api/holidays", params={"year": 2030, "municipality": "Castelló de la Plana"}).json()
+        assert all(row["date"] != "2030-01-01" for row in rows)
+    with TestClient(create_app(db_path)) as restarted:
+        rows = restarted.get("/api/holidays", params={"year": 2030, "municipality": "Castelló de la Plana"}).json()
+        assert all(row["date"] != "2030-01-01" for row in rows)
+
+
+def test_summary_review_can_be_corrected_without_creating_a_shift(client):
+    test_client, _ = client
+    employee, _ = setup_people(client)
+    content = (
+        "id;mes;horas totales\n"
+        f"{employee['code']};2026-13;200\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("resumen.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    result = test_client.post("/api/imports/confirm", json={"filename": "resumen.csv", "rows": preview.json()["rows"]})
+    assert result.status_code == 201, result.text
+    queue = test_client.get("/api/review").json()
+    item = next(entry for entry in queue if entry.get("raw", {}).get("kind") == "summary")
+    resolved = test_client.post(f"/api/review/{item['id']}/resolve-summary", json={"employee_id": employee["id"], "month": "2026-07", "hours": "200"})
+    assert resolved.status_code == 201, resolved.text
+    summaries = test_client.get("/api/monthly-summaries", params={"year": 2026, "month": 7}).json()
+    assert len(summaries) == 1
+    assert summaries[0]["minutes"] == 12000
+    assert test_client.get("/api/reports", params={"year": 2026, "month": 4}).json()["shifts"] == []
+
+
+def test_excel_summary_accepts_timedelta_and_datetime_month(client):
+    import openpyxl
+    from datetime import datetime, timedelta
+
+    test_client, _ = client
+    employee, _ = setup_people(client)
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["id", "mes", "horas totales"])
+    sheet.append([employee["code"], datetime(2026, 7, 1), timedelta(hours=200)])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    preview = test_client.post("/api/imports/preview", files={"file": ("resumen.xlsx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert preview.status_code == 200, preview.text
+    row = preview.json()["rows"][0]
+    assert row["status"] == "ready", row["errors"]
+    assert row["month"] == "2026-07"
+    assert row["minutes"] == 12000
+
+
+def test_duplicate_new_names_in_same_file_are_flagged(client):
+    test_client, _ = client
+    _, post = setup_people(client)
+    content = (
+        "id;empleado;puesto;municipio;fecha;entrada;salida\n"
+        f"VS-N1;Ana Nueva;{post['name']};{post['municipality']};2026-04-12;08:00;16:00\n"
+        f"VS-N2;Ana Nueva;{post['name']};{post['municipality']};2026-04-13;08:00;16:00\n"
+    ).encode()
+    preview = test_client.post("/api/imports/preview", files={"file": ("duplicados.csv", content, "text/csv")})
+    assert preview.status_code == 200, preview.text
+    rows = preview.json()["rows"]
+    assert rows[0]["status"] == "ready"
+    assert rows[1]["status"] == "pending"
+    assert rows[1]["duplicate_of"] == ["VS-N1"]
+
+
+def test_export_neutralizes_formula_injection(client):
+    import openpyxl
+
+    test_client, _ = client
+    employee = test_client.post("/api/employees", json={"code": "=CMD", "first_name": "=1+1", "last_name": "Peligro"}).json()
+    post = test_client.post("/api/posts", json={"name": "=Puesto", "municipality": "València", "province": "Valencia"}).json()
+    assert add_shift(test_client, employee, post).status_code == 201
+
+    csv_export = test_client.get("/api/exports/shifts.csv", params={"year": 2026, "month": 4})
+    assert "'=CMD" in csv_export.text
+    xlsx_export = test_client.get("/api/exports/shifts.xlsx", params={"year": 2026, "month": 4})
+    workbook = openpyxl.load_workbook(io.BytesIO(xlsx_export.content), read_only=True)
+    row = list(workbook.active.iter_rows(values_only=True))[1]
+    workbook.close()
+    assert row[0].startswith("'=")
+    assert row[1].startswith("'=")
+    assert row[2].startswith("'=")

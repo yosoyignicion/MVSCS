@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import os
 import re
 import sqlite3
@@ -15,7 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -28,43 +29,63 @@ MAX_IMPORT_BYTES = 10 * 1024 * 1024
 DEFAULT_MUNICIPALITY = "Castelló de la Plana"
 DEFAULT_PROVINCE = "Castellón"
 
-# Festivos oficiales estatales + Comunitat Valenciana (2025-2026) para Castelló de la Plana.
-# Fuente nacional/autonómica: librería `holidays` (ES, subdivisión VC).
-# Locales de Castelló de la Plana 2026 (Magdalena y San Pedro): calendario de la Cámara de
-# Comercio de Castellón 2026. Los festivos LOCALES de 2025 y de otros municipios no se
-# incluyen: se añaden o revisan por separado (la app no certifica exhaustividad).
-OFFICIAL_HOLIDAYS: list[tuple[str, str]] = [
-    ("2025-01-01", "Año Nuevo"),
-    ("2025-01-06", "Epifanía del Señor"),
-    ("2025-03-19", "San José"),
-    ("2025-04-18", "Viernes Santo"),
-    ("2025-04-21", "Lunes de Pascua"),
-    ("2025-05-01", "Fiesta del Trabajo"),
-    ("2025-06-24", "San Juan"),
-    ("2025-08-15", "Asunción de la Virgen"),
-    ("2025-10-09", "Día de la Comunitat Valenciana"),
-    ("2025-10-12", "Fiesta Nacional de España"),
-    ("2025-11-01", "Todos los Santos"),
-    ("2025-12-06", "Día de la Constitución Española"),
-    ("2025-12-08", "Inmaculada Concepción"),
-    ("2025-12-25", "Natividad del Señor"),
-    ("2026-01-01", "Año Nuevo"),
-    ("2026-01-06", "Epifanía del Señor"),
-    ("2026-03-09", "Fiestas de la Magdalena (local)"),
-    ("2026-03-19", "San José"),
-    ("2026-04-03", "Viernes Santo"),
-    ("2026-04-06", "Lunes de Pascua"),
-    ("2026-05-01", "Fiesta del Trabajo"),
-    ("2026-06-24", "San Juan"),
-    ("2026-06-29", "San Pedro (local)"),
-    ("2026-08-15", "Asunción de la Virgen"),
-    ("2026-10-09", "Día de la Comunitat Valenciana"),
-    ("2026-10-12", "Fiesta Nacional de España"),
-    ("2026-11-01", "Todos los Santos"),
-    ("2026-12-06", "Día de la Constitución Española"),
-    ("2026-12-08", "Inmaculada Concepción"),
-    ("2026-12-25", "Natividad del Señor"),
-]
+# Calendario oficial: nacional, Comunitat Valenciana y locales de Castelló de la Plana.
+# Los años se calculan por reglas offline (Pascua incluida) desde 2025 hasta cinco
+# ejercicios vista. Los festivos nacionales/autonómicos se replican para todos los
+# municipios dados de alta; los locales solo para el municipio por defecto.
+HOLIDAY_FIRST_YEAR = 2025
+HOLIDAY_GENERATED_YEARS_AHEAD = 5
+
+
+def easter_sunday(year: int) -> date:
+    """Domingo de Pascua (algoritmo gregoriano anónimo)."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def holidays_for_year(year: int) -> list[tuple[str, str, str]]:
+    """Devuelve (fecha, nombre, ámbito) para un ejercicio."""
+    easter = easter_sunday(year)
+    entries: list[tuple[date, str, str]] = [
+        (date(year, 1, 1), "Año Nuevo", "national"),
+        (date(year, 1, 6), "Epifanía del Señor", "national"),
+        (easter - timedelta(days=2), "Viernes Santo", "national"),
+        (date(year, 5, 1), "Fiesta del Trabajo", "national"),
+        (date(year, 8, 15), "Asunción de la Virgen", "national"),
+        (date(year, 10, 12), "Fiesta Nacional de España", "national"),
+        (date(year, 11, 1), "Todos los Santos", "national"),
+        (date(year, 12, 6), "Día de la Constitución Española", "national"),
+        (date(year, 12, 8), "Inmaculada Concepción", "national"),
+        (date(year, 12, 25), "Natividad del Señor", "national"),
+        (date(year, 3, 19), "San José", "autonomic"),
+        (easter + timedelta(days=1), "Lunes de Pascua", "autonomic"),
+        (date(year, 6, 24), "San Juan", "autonomic"),
+        (date(year, 10, 9), "Día de la Comunitat Valenciana", "autonomic"),
+        # Magdalena: lunes de la tercera semana de Cuaresma (Pascua - 27 días).
+        (easter - timedelta(days=27), "Fiestas de la Magdalena (local)", "local"),
+    ]
+    san_pedro = date(year, 6, 29)
+    if san_pedro.weekday() == 6:  # Si cae en domingo, se traslada al lunes.
+        san_pedro += timedelta(days=1)
+    entries.append((san_pedro, "San Pedro (local)", "local"))
+    return [(day.isoformat(), name, scope) for day, name, scope in entries]
+
+
+def generated_official_holidays(start_year: int, end_year: int) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    for year in range(start_year, end_year + 1):
+        rows.extend(holidays_for_year(year))
+    return rows
+
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -115,6 +136,12 @@ CREATE TABLE IF NOT EXISTS holidays (
     created_at TEXT NOT NULL,
     UNIQUE(date, municipality, name)
 );
+CREATE TABLE IF NOT EXISTS dismissed_holidays (
+    date TEXT NOT NULL,
+    municipality TEXT NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY(date, municipality, name)
+);
 CREATE TABLE IF NOT EXISTS review_items (
     id TEXT PRIMARY KEY,
     source_label TEXT NOT NULL,
@@ -150,11 +177,23 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def sync_official_holidays(conn: sqlite3.Connection) -> int:
-    """Carga idempotente de festivos oficiales (estatales + Comunitat Valenciana).
+    """Carga idempotente de festivos y respeta los que el usuario haya descartado.
 
-    No incluye los festivos locales de cada municipio: esos se revisan/añaden aparte.
+    Los nacionales/autonómicos se replican a todos los municipios con puestos dados de
+    alta; los locales solo se aplican al municipio por defecto (Castelló de la Plana).
     """
-    rows = [(str(uuid.uuid4()), day, DEFAULT_MUNICIPALITY, name, now_text()) for day, name in OFFICIAL_HOLIDAYS]
+    last_year = datetime.now(LOCAL_ZONE).year + HOLIDAY_GENERATED_YEARS_AHEAD
+    official = generated_official_holidays(HOLIDAY_FIRST_YEAR, max(HOLIDAY_FIRST_YEAR, last_year))
+    dismissed = {(row["date"], row["municipality"], row["name"]) for row in conn.execute("SELECT date,municipality,name FROM dismissed_holidays").fetchall()}
+    municipalities = {DEFAULT_MUNICIPALITY}
+    municipalities.update(row["municipality"] for row in conn.execute("SELECT DISTINCT municipality FROM posts").fetchall() if row["municipality"])
+    rows: list[tuple[str, str, str, str, str]] = []
+    for day, name, scope in official:
+        targets = municipalities if scope in {"national", "autonomic"} else {DEFAULT_MUNICIPALITY}
+        for municipality in targets:
+            if (day, municipality, name) in dismissed:
+                continue
+            rows.append((str(uuid.uuid4()), day, municipality, name, now_text()))
     before = conn.execute("SELECT COUNT(*) FROM holidays").fetchone()[0]
     conn.executemany("INSERT OR IGNORE INTO holidays(id,date,municipality,name,created_at) VALUES(?,?,?,?,?)", rows)
     after = conn.execute("SELECT COUNT(*) FROM holidays").fetchone()[0]
@@ -200,6 +239,11 @@ class ImportRows(BaseModel):
 
 class ShiftIds(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=5000)
+
+class SummaryReviewInput(BaseModel):
+    employee_id: str
+    month: str
+    hours: str
 
 
 class ConfirmImport(BaseModel):
@@ -316,6 +360,12 @@ def hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+def safe_export_text(value: Any) -> str:
+    """Evita que un texto importado se evalúe como fórmula al abrir CSV/Excel."""
+    text = str(value or "")
+    return f"'{text}" if text[:1] in {"=", "+", "-", "@"} else text
+
+
 def normalized_name(*parts: str) -> str:
     """Nombre comparable: minúsculas, sin acentos ni espacios sobrantes."""
     text = " ".join(part for part in parts if part).strip().lower()
@@ -336,6 +386,9 @@ def cell_to_text(value: Any) -> str:
         return value.strftime("%H:%M")
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
+    if isinstance(value, timedelta):
+        total_minutes = int(value.total_seconds() // 60)
+        return f"{total_minutes // 60}:{total_minutes % 60:02d}"
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
@@ -348,27 +401,71 @@ def coerce_date(value: str) -> date:
     try:
         return date.fromisoformat(text)
     except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        pass
+    if re.fullmatch(r"\d{8}", text):
         try:
-            return datetime.fromisoformat(text).date()
-        except ValueError as exc:
-            raise ValueError("fecha no válida (YYYY-MM-DD)") from exc
+            return date(int(text[:4]), int(text[4:6]), int(text[6:8]))
+        except ValueError:
+            pass
+    try:
+        serial = float(text.replace(",", "."))
+        if 20000 <= serial <= 80000:  # Fecha serial de Excel (base 1899-12-30).
+            return date(1899, 12, 30) + timedelta(days=int(serial))
+    except ValueError:
+        pass
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError("fecha no válida (usa YYYY-MM-DD o DD/MM/YYYY)")
 
 
 def coerce_time(value: str) -> time:
-    text = (value or "").strip()
+    text = (value or "").strip().replace("\u00a0", " ")
     if not text:
         raise ValueError("falta la hora")
     try:
         return time.fromisoformat(text)
     except ValueError:
-        try:
-            return datetime.fromisoformat(text).time()
-        except ValueError as exc:
-            raise ValueError("hora no válida (formato HH:MM)") from exc
+        pass
+    try:
+        return datetime.fromisoformat(text).time()
+    except ValueError:
+        pass
+    match = re.fullmatch(r"(\d{1,2})[:.](\d{2})(?::(\d{2}))?\s*(?:h|hs)?", text, re.IGNORECASE)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        second = int(match.group(3) or 0)
+        if hour == 24 and minute == 0 and second == 0:
+            hour = 0
+        if 0 <= hour < 24 and 0 <= minute < 60 and 0 <= second < 60:
+            return time(hour, minute, second)
+    try:
+        numeric = float(text.replace(",", "."))
+        if 0 <= numeric < 1:  # Fracción de día típica de Excel (0.5 = 12:00).
+            total = round(numeric * 1440)
+            return time((total // 60) % 24, total % 60)
+        if numeric.is_integer() and 0 <= numeric < 24:
+            return time(int(numeric), 0)
+    except ValueError:
+        pass
+    raise ValueError("hora no válida (usa HH:MM)")
 
 
 def import_time(raw_date: str, raw_time: str, base_date: date, start: datetime | None = None) -> datetime:
-    parsed_time = coerce_time(raw_time)
+    text = (raw_time or "").strip()
+    if re.search(r"\d{4}-\d{2}-\d{2}", text) and re.search(r"\d{1,2}:\d{2}", text):
+        try:
+            parsed = datetime.fromisoformat(text.replace(" ", "T"))
+            return parsed.replace(tzinfo=None)
+        except ValueError:
+            pass
+    parsed_time = coerce_time(text)
     parsed_date = coerce_date(raw_date) if (raw_date or "").strip() else base_date
     result = datetime.combine(parsed_date, parsed_time)
     if start and result <= start:
@@ -377,20 +474,36 @@ def import_time(raw_date: str, raw_time: str, base_date: date, start: datetime |
 
 
 IMPORT_ALIASES = {
-    "id": "code", "employee_id": "code", "employee_code": "code", "codigo": "code", "codigo empleado": "code", "id trabajador": "code", "id empleado": "code",
+    "id": "code", "employee_id": "code", "employee_code": "code", "codigo": "code", "código": "code",
+    "codigo empleado": "code", "código empleado": "code", "codigo trabajador": "code", "código trabajador": "code", "cod empleado": "code", "cod. empleado": "code",
+    "id trabajador": "code", "id empleado": "code", "n empleado": "code", "nº empleado": "code",
+    "n.º empleado": "code", "num empleado": "code", "numero empleado": "code", "número empleado": "code",
     "employee": "employee", "empleado": "employee", "nombre": "employee", "nombre ficticio": "employee",
-    "post": "post", "service": "post", "puesto": "post", "servicio": "post", "instalacion": "post",
-    "municipality": "municipality", "municipio": "municipality", "localidad": "municipality",
-    "province": "province", "provincia": "province",
-    "date": "date", "fecha": "date", "dia": "date",
-    "start": "start", "entrada": "start", "hora entrada": "start", "inicio": "start",
-    "end": "end", "salida": "end", "hora salida": "end", "fin": "end",
+    "nombre completo": "employee", "nombre y apellidos": "employee", "trabajador": "employee", "vigilante": "employee",
+    "apellidos": "last_name", "apellido": "last_name",
+    "post": "post", "service": "post", "puesto": "post", "puesto de trabajo": "post", "servicio": "post",
+    "instalacion": "post", "instalación": "post", "servicio/instalacion": "post", "servicio/instalación": "post",
+    "centro": "post", "centro de trabajo": "post",
+    "municipality": "municipality", "municipio": "municipality", "localidad": "municipality", "poblacion": "municipality",
+    "población": "municipality", "ciudad": "municipality",
+    "province": "province", "provincia": "province", "prov": "province",
+    "date": "date", "fecha": "date", "dia": "date", "día": "date", "fecha turno": "date",
+    "fecha de trabajo": "date", "fecha servicio": "date",
+    "start": "start", "entrada": "start", "hora entrada": "start", "hora de entrada": "start", "inicio": "start",
+    "hora inicio": "start", "fecha entrada": "start", "fecha de entrada": "start", "fecha inicio": "start",
+    "fecha/hora entrada": "start",
+    "end": "end", "salida": "end", "hora salida": "end", "hora de salida": "end", "fin": "end",
+    "hora fin": "end", "fecha salida": "end", "fecha de salida": "end", "fecha fin": "end", "fecha/hora salida": "end",
     "break_start": "break_start", "pausa inicio": "break_start", "inicio pausa": "break_start",
+    "inicio descanso": "break_start", "descanso inicio": "break_start", "comida inicio": "break_start",
     "break_end": "break_end", "pausa fin": "break_end", "fin pausa": "break_end",
-    "break_paid": "break_paid", "pausa remunerada": "break_paid",
-    "location": "location", "localizacion": "location", "localización": "location", "localización ficticia": "location", "localizacion ficticia": "location",
-    "month": "month", "mes": "month",
-    "total_hours": "total_hours", "horas": "total_hours", "horas totales": "total_hours", "horas totales trabajadas": "total_hours",
+    "fin descanso": "break_end", "descanso fin": "break_end", "comida fin": "break_end",
+    "break_paid": "break_paid", "pausa remunerada": "break_paid", "pausa pagada": "break_paid",
+    "location": "location", "localizacion": "location", "localización": "location",
+    "localización ficticia": "location", "localizacion ficticia": "location",
+    "month": "month", "mes": "month", "periodo": "month", "periodo/mes": "month", "mes/año": "month",
+    "total_hours": "total_hours", "horas": "total_hours", "horas totales": "total_hours",
+    "horas totales trabajadas": "total_hours", "horas totales mes": "total_hours", "horas mes": "total_hours",
 }
 
 MONTH_NAMES = {
@@ -405,12 +518,18 @@ def parse_month(value: str) -> str:
     text = (value or "").strip()
     if not text:
         raise ValueError("falta el mes")
-    match = re.fullmatch(r"(\d{4})-(\d{1,2})(?:-\d{1,2})?", text)
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})(?:-\d{1,2})?(?:[ T].*)?", text)
     if match:
         month = int(match.group(2))
         if not 1 <= month <= 12:
             raise ValueError("mes no válido")
         return f"{int(match.group(1)):04d}-{month:02d}"
+    match = re.fullmatch(r"(\d{1,2})[/-](\d{4})", text)
+    if match:
+        month = int(match.group(1))
+        if not 1 <= month <= 12:
+            raise ValueError("mes no válido")
+        return f"{int(match.group(2)):04d}-{month:02d}"
     tokens = re.split(r"[\s/,.]+", text.lower())
     year = next((int(token) for token in tokens if re.fullmatch(r"\d{4}", token)), None)
     name = next((token for token in tokens if token in MONTH_NAMES), None)
@@ -423,13 +542,20 @@ def parse_hours(value: str) -> int:
     text = (value or "").strip().replace(",", ".")
     if not text:
         raise ValueError("faltan las horas")
-    if ":" in text:
-        hours, _, minutes = text.partition(":")
-        return int(hours) * 60 + int((minutes or "0")[:2] or 0)
     try:
-        return round(float(text) * 60)
-    except ValueError as exc:
+        if ":" in text:
+            hours, _, minutes = text.partition(":")
+            total = int(hours) * 60 + int((minutes or "0")[:2] or 0)
+        else:
+            number = float(text)
+            if not math.isfinite(number):
+                raise ValueError("las horas deben ser un número finito")
+            total = round(number * 60)
+    except (ValueError, OverflowError) as exc:
         raise ValueError(f"horas no válidas ({value})") from exc
+    if total < 0 or total > 100000:
+        raise ValueError("las horas deben estar entre 0 y 100000 minutos")
+    return total
 
 
 def resolve_or_create_employee(conn: sqlite3.Connection, row: dict[str, Any]) -> str:
@@ -469,6 +595,7 @@ def resolve_or_create_post(conn: sqlite3.Connection, row: dict[str, Any]) -> str
         "INSERT INTO posts(id,name,municipality,province,created_at) VALUES(?,?,?,?,?)",
         (new_id, name, municipality, province, now_text()),
     )
+    sync_official_holidays(conn)
     return new_id
 
 
@@ -496,12 +623,7 @@ def store_summary_row(conn: sqlite3.Connection, row: dict[str, Any], errors: lis
     if errors:
         queue_review(conn, label, row, errors, now)
         return 0
-    post_id = None
-    post_name = str(row.get("post_name") or "").strip()
-    municipality = str(row.get("municipality") or "").strip() or DEFAULT_MUNICIPALITY
-    if post_name:
-        found = conn.execute("SELECT id FROM posts WHERE name=? AND municipality=?", (post_name, municipality)).fetchone()
-        post_id = found["id"] if found else None
+    post_id = resolve_or_create_post(conn, row) or None
     existing = conn.execute("SELECT id FROM monthly_summaries WHERE employee_id=? AND month=?", (employee_id, month)).fetchone()
     if existing:
         conn.execute("UPDATE monthly_summaries SET post_id=?, minutes=?, source=?, source_label=?, created_at=? WHERE id=?", (post_id, int(minutes), source, Path(filename).name, now, existing["id"]))
@@ -521,22 +643,35 @@ def build_name_index(conn: sqlite3.Connection) -> dict[str, list[str]]:
     return index
 
 
+def combined_employee_name(fields: dict[str, str]) -> str:
+    parts = [fields.get("employee", "").strip(), fields.get("last_name", "").strip()]
+    return " ".join(part for part in parts if part)
+
+
 def normalize_rows(raw_rows: list[dict[str, Any]], conn: sqlite3.Connection) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     name_index = build_name_index(conn)
     for line_number, raw in enumerate(raw_rows, start=2):
-        fields = {IMPORT_ALIASES.get((key or "").strip().lower(), (key or "").strip().lower()): cell_to_text(value) for key, value in raw.items() if key}
-        if fields.get("month") or fields.get("total_hours"):
-            records.append(normalize_summary_row(fields, line_number, conn, name_index))
+        fields = {IMPORT_ALIASES.get(header_key(key), header_key(key)): cell_to_text(value) for key, value in raw.items() if key}
+        looks_like_shift = any(fields.get(key) for key in ("date", "start", "end"))
+        if (fields.get("month") or fields.get("total_hours")) and not looks_like_shift:
+            record = normalize_summary_row(fields, line_number, conn, name_index)
         else:
-            records.append(normalize_shift_row(fields, line_number, conn, name_index))
+            record = normalize_shift_row(fields, line_number, conn, name_index)
+        code = str(record.get("employee_code") or "").strip()
+        name = str(record.get("employee_name") or "").strip()
+        if code and name:
+            key = normalized_name(name)
+            if key and code not in name_index.get(key, []):
+                name_index.setdefault(key, []).append(code)
+        records.append(record)
     return records
 
 
 def normalize_shift_row(fields: dict[str, str], line_number: int, conn: sqlite3.Connection, name_index: dict[str, list[str]]) -> dict[str, Any]:
     errors: list[str] = []
     code = fields.get("code", "").strip()
-    name = fields.get("employee", "").strip()
+    name = combined_employee_name(fields)
     employee = conn.execute("SELECT * FROM employees WHERE code=? AND active=1", (code,)).fetchone() if code else None
     duplicate_of: list[str] = []
     if not employee and name:
@@ -562,6 +697,8 @@ def normalize_shift_row(fields: dict[str, str], line_number: int, conn: sqlite3.
         day = coerce_date(date_text)
         start = import_time(day.isoformat(), start_text, day)
         end = import_time(day.isoformat(), fields.get("end", ""), day, start)
+        if end <= start:
+            raise ValueError("la salida debe ser posterior a la entrada")
         if end - start > timedelta(hours=24):
             raise ValueError("el turno supera 24 horas")
     except ValueError as exc:
@@ -611,7 +748,7 @@ def normalize_shift_row(fields: dict[str, str], line_number: int, conn: sqlite3.
 def normalize_summary_row(fields: dict[str, str], line_number: int, conn: sqlite3.Connection, name_index: dict[str, list[str]]) -> dict[str, Any]:
     errors: list[str] = []
     code = fields.get("code", "").strip()
-    name = fields.get("employee", "").strip()
+    name = combined_employee_name(fields)
     duplicate_of: list[str] = []
     code_known = bool(code) and bool(conn.execute("SELECT 1 FROM employees WHERE code=?", (code,)).fetchone())
     if not code_known and name:
@@ -650,23 +787,86 @@ def normalize_summary_row(fields: dict[str, str], line_number: int, conn: sqlite
     }
 
 
-def csv_dialect(text: str) -> csv.Dialect:
+def header_key(value: Any) -> str:
+    return " ".join(cell_to_text(value).lower().split())
+
+
+def header_score(row: list[Any]) -> int:
+    return sum(1 for cell in row if header_key(cell) in IMPORT_ALIASES)
+
+
+def matrix_header_index(rows: list[list[Any]]) -> int:
+    """Busca la fila de encabezados aunque haya títulos o filas vacías delante."""
+    best_score, best_index = 0, None
+    for index, row in enumerate(rows[:20]):
+        score = header_score(row)
+        if score > best_score:
+            best_score, best_index = score, index
+    if best_index is not None and best_score >= 2:
+        return best_index
+    for index, row in enumerate(rows):
+        if any(cell_to_text(cell) for cell in row):
+            return index
+    return 0
+
+
+def matrix_to_records(matrix: list[list[Any]]) -> list[dict[str, str]]:
+    """Convierte una matriz (CSV/Excel/PDF) en filas usando la fila de encabezados detectada."""
+    rows = [list(row) for row in matrix if row is not None]
+    if not rows:
+        return []
+    header_index = matrix_header_index(rows)
+    columns: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for index, cell in enumerate(rows[header_index]):
+        name = cell_to_text(cell)
+        if not name:
+            continue
+        key, suffix = name, 2
+        while key in seen:
+            key = f"{name} {suffix}"
+            suffix += 1
+        seen.add(key)
+        columns.append((index, key))
+    result: list[dict[str, str]] = []
+    for row in rows[header_index + 1:]:
+        values = [cell_to_text(cell) for cell in row]
+        if all(value == "" for value in values):
+            continue
+        record = {name: values[index] if index < len(values) else "" for index, name in columns}
+        if any(value for value in record.values()):
+            result.append(record)
+    return result
+
+
+def csv_delimiter(text: str) -> str:
     """Detecta el separador (coma, punto y coma, tabulador o barra) sin fiarse del nombre."""
     try:
-        return csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+        return csv.Sniffer().sniff(text[:4096], delimiters=",;\t|").delimiter
     except csv.Error:
-        return csv.excel
+        lines = [line for line in text.splitlines()[:20] if line.strip()]
+        if not lines:
+            return ","
+        counts = {delimiter: sum(line.count(delimiter) for line in lines) for delimiter in ",;\t|"}
+        best = max(counts, key=counts.get)
+        return best if counts[best] else ","
 
 
 def rows_from_csv(file_bytes: bytes) -> list[dict[str, str]]:
-    try:
-        text = file_bytes.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ValueError("El CSV debe estar codificado como UTF-8.") from exc
-    reader = csv.DictReader(io.StringIO(text), dialect=csv_dialect(text))
-    if not reader.fieldnames:
-        raise ValueError("El archivo CSV no contiene encabezados.")
-    return [{(key or "").strip(): cell_to_text(value) for key, value in row.items() if key} for row in reader]
+    text: str | None = None
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            text = file_bytes.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ValueError("No se pudo leer el CSV. Guarda el archivo en UTF-8 o Windows-1252.")
+    matrix = list(csv.reader(io.StringIO(text), delimiter=csv_delimiter(text)))
+    records = matrix_to_records(matrix)
+    if not records:
+        raise ValueError("El archivo CSV no contiene encabezados ni filas de datos.")
+    return records
 
 
 def rows_from_xlsx(file_bytes: bytes) -> list[dict[str, str]]:
@@ -674,27 +874,31 @@ def rows_from_xlsx(file_bytes: bytes) -> list[dict[str, str]]:
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     except Exception as exc:
-        raise ValueError("No se pudo leer el libro de Excel (.xlsx).") from exc
+        raise ValueError("No se pudo leer el libro de Excel (.xlsx/.xlsm).") from exc
     try:
         if not workbook.worksheets:
             raise ValueError("El libro de Excel no contiene hojas.")
-        sheet = workbook.worksheets[0]
-        rows_iter = sheet.iter_rows(values_only=True)
-        try:
-            header = next(rows_iter)
-        except StopIteration:
-            raise ValueError("La hoja de Excel está vacía.")
-        headers = [cell_to_text(cell) for cell in header]
-        if not any(headers):
-            raise ValueError("La primera fila de la hoja no contiene encabezados.")
-        result: list[dict[str, str]] = []
-        for row in rows_iter:
-            if row is None or all(cell_to_text(cell) == "" for cell in row):
+        best_rank = (-1, -1)
+        best_records: list[dict[str, str]] = []
+        combined: list[dict[str, str]] = []
+        for sheet in workbook.worksheets:
+            matrix = [list(row) for row in sheet.iter_rows(values_only=True)]
+            if not matrix:
                 continue
-            record = {name: cell_to_text(cell) for name, cell in zip(headers, row) if name}
-            if record:
-                result.append(record)
-        return result
+            header_index = matrix_header_index(matrix)
+            score = header_score(matrix[header_index])
+            records = matrix_to_records(matrix)
+            rank = (score, len(matrix))
+            if rank > best_rank:
+                best_rank = rank
+                best_records = records
+            if score >= 2:
+                combined.extend(records)
+        if combined:
+            return combined
+        if not best_records:
+            raise ValueError("La hoja de Excel no contiene encabezados ni filas de datos.")
+        return best_records
     finally:
         workbook.close()
 
@@ -706,25 +910,30 @@ def rows_from_pdf(file_bytes: bytes) -> list[dict[str, str]]:
     except Exception as exc:
         raise ValueError("No se pudo abrir el PDF.") from exc
     try:
-        best: list[list[Any]] | None = None
+        best_rank = (-1, -1)
+        best_matrix: list[list[Any]] | None = None
+        combined: list[dict[str, str]] = []
         for page in document:
             for table in page.find_tables():
-                data = table.extract()
-                if data and len(data) >= 2 and (best is None or len(data) > len(best)):
-                    best = data
-        if best is None:
+                matrix = table.extract()
+                if not matrix or not any(any(cell_to_text(cell) for cell in row) for row in matrix):
+                    continue
+                header_index = matrix_header_index(matrix)
+                score = header_score(matrix[header_index])
+                rank = (score, len(matrix))
+                if rank > best_rank:
+                    best_rank = rank
+                    best_matrix = matrix
+                if score >= 2:
+                    combined.extend(matrix_to_records(matrix))
+        if combined:
+            return combined
+        if best_matrix is None:
             raise ValueError("No se detectó una tabla en el PDF. Los PDF escaneados (imagen) todavía no se admiten.")
-        header = [cell_to_text(cell) for cell in best[0]]
-        if not any(header):
-            raise ValueError("La tabla del PDF no tiene encabezados reconocibles.")
-        result: list[dict[str, str]] = []
-        for row in best[1:]:
-            if all(cell_to_text(cell) == "" for cell in row):
-                continue
-            record = {name: cell_to_text(cell) for name, cell in zip(header, row) if name}
-            if record:
-                result.append(record)
-        return result
+        records = matrix_to_records(best_matrix)
+        if not records:
+            raise ValueError("La tabla del PDF no contiene filas de datos reconocibles.")
+        return records
     finally:
         document.close()
 
@@ -803,6 +1012,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             post_id = str(uuid.uuid4())
             try:
                 conn.execute("INSERT INTO posts(id,name,municipality,province,created_at) VALUES(?,?,?,?,?)", (post_id, data.name.strip(), data.municipality.strip(), data.province.strip(), now_text()))
+                sync_official_holidays(conn)
                 conn.commit()
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(409, "Ya existe un puesto con ese nombre en ese municipio.") from exc
@@ -887,6 +1097,35 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
 
+    @app.post("/api/review/{review_id}/resolve-summary", status_code=201)
+    def resolve_summary_review(review_id: str, data: SummaryReviewInput) -> dict[str, Any]:
+        with closing(connect(selected_path)) as conn:
+            item = conn.execute("SELECT * FROM review_items WHERE id=?", (review_id,)).fetchone()
+            if not item:
+                raise HTTPException(404, "El elemento de revisión ya no existe.")
+            if not conn.execute("SELECT 1 FROM employees WHERE id=? AND active=1", (data.employee_id,)).fetchone():
+                raise HTTPException(422, "El empleado seleccionado no existe.")
+            try:
+                month = parse_month(data.month)
+                minutes = parse_hours(data.hours)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            raw = json.loads(item["raw_json"])
+            post_id = raw.get("post_id") or None
+            if not post_id:
+                post_id = resolve_or_create_post(conn, raw) or None
+            now = now_text()
+            existing = conn.execute("SELECT id FROM monthly_summaries WHERE employee_id=? AND month=?", (data.employee_id, month)).fetchone()
+            if existing:
+                conn.execute("UPDATE monthly_summaries SET post_id=?, minutes=?, source=?, source_label=?, created_at=? WHERE id=?", (post_id, minutes, "manual", "Revisado manualmente", now, existing["id"]))
+                summary_id = existing["id"]
+            else:
+                summary_id = str(uuid.uuid4())
+                conn.execute("INSERT INTO monthly_summaries(id,employee_id,post_id,month,minutes,source,source_label,created_at) VALUES(?,?,?,?,?,?,?,?)", (summary_id, data.employee_id, post_id, month, minutes, "manual", "Revisado manualmente", now))
+            conn.execute("DELETE FROM review_items WHERE id=?", (review_id,))
+            conn.commit()
+            return {"id": summary_id, "month": month, "minutes": minutes, "status": "saved"}
+
     @app.delete("/api/review/{review_id}", status_code=204)
     def discard_review(review_id: str) -> None:
         with closing(connect(selected_path)) as conn:
@@ -927,6 +1166,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         with closing(connect(selected_path)) as conn:
             try:
                 conn.execute("INSERT INTO holidays(id,date,municipality,name,created_at) VALUES(?,?,?,?,?)", (holiday_id, parsed_date.isoformat(), data.municipality.strip(), data.name.strip(), now_text()))
+                conn.execute("DELETE FROM dismissed_holidays WHERE date=? AND municipality=? AND name=?", (parsed_date.isoformat(), data.municipality.strip(), data.name.strip()))
                 conn.commit()
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(409, "Ese festivo ya está registrado.") from exc
@@ -935,9 +1175,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.delete("/api/holidays/{holiday_id}", status_code=204)
     def delete_holiday(holiday_id: str) -> None:
         with closing(connect(selected_path)) as conn:
-            result = conn.execute("DELETE FROM holidays WHERE id=?", (holiday_id,))
-            if not result.rowcount:
+            row = conn.execute("SELECT date,municipality,name FROM holidays WHERE id=?", (holiday_id,)).fetchone()
+            if not row:
                 raise HTTPException(404, "Festivo no encontrado.")
+            conn.execute("INSERT OR IGNORE INTO dismissed_holidays(date,municipality,name) VALUES(?,?,?)", (row["date"], row["municipality"], row["name"]))
+            conn.execute("DELETE FROM holidays WHERE id=?", (holiday_id,))
             conn.commit()
 
     @app.get("/api/monthly-summaries")
@@ -1033,11 +1275,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             holiday_dates: dict[str, set[str]] = {municipality: set() for municipality in municipalities}
             for h in conn.execute("SELECT date,municipality FROM holidays WHERE date>=? AND date<?", (first_day.isoformat(), last_day.isoformat())).fetchall():
                 holiday_dates.setdefault(h["municipality"], set()).add(h["date"])
-            summary_clause = "ms.month=?" if month else "ms.month LIKE ?"
-            summary_param = f"{year:04d}-{month:02d}" if month else f"{year:04d}-%"
+            summary_clauses = ["ms.month=?" if month else "ms.month LIKE ?", "(e.code LIKE ? OR e.first_name LIKE ? OR e.last_name LIKE ?)"]
+            summary_params: list[Any] = [f"{year:04d}-{month:02d}" if month else f"{year:04d}-%", f"%{q}%", f"%{q}%", f"%{q}%"]
+            if post_id:
+                summary_clauses.append("ms.post_id=?")
+                summary_params.append(post_id)
             summary_rows = conn.execute(
-                "SELECT ms.*, e.code employee_code, e.first_name, e.last_name, p.name post_name FROM monthly_summaries ms JOIN employees e ON e.id=ms.employee_id LEFT JOIN posts p ON p.id=ms.post_id WHERE " + summary_clause + " ORDER BY ms.month, e.code",
-                (summary_param,),
+                "SELECT ms.*, e.code employee_code, e.first_name, e.last_name, p.name post_name FROM monthly_summaries ms JOIN employees e ON e.id=ms.employee_id LEFT JOIN posts p ON p.id=ms.post_id WHERE " + " AND ".join(summary_clauses) + " ORDER BY ms.month, e.code",
+                summary_params,
             ).fetchall()
             summaries = [
                 {"id": row["id"], "employee_code": row["employee_code"], "name": f"{row['first_name']} {row['last_name']}".strip(), "post_name": row["post_name"], "month": row["month"], "minutes": row["minutes"], "hours": hhmm(row["minutes"]), "source_label": row["source_label"]}
@@ -1057,7 +1302,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                         bucket = by_day.setdefault(day, {"minutes": 0, "night_minutes": 0, "holiday_minutes": 0, "shift_count": 0})
                         for key in ("minutes", "night_minutes", "holiday_minutes"):
                             bucket[key] += values[key]
-                        bucket["shift_count"] += 1
+                        if day == shift["start_at"][:10]:
+                            bucket["shift_count"] += 1
                 employee = by_employee.setdefault(shift["employee_id"], {"employee_id": shift["employee_id"], "code": shift["employee_code"], "name": f"{shift['first_name']} {shift['last_name']}".strip(), "minutes": 0, "night_minutes": 0, "holiday_minutes": 0, "shift_count": 0})
                 post = by_post.setdefault(shift["post_id"], {"post_id": shift["post_id"], "name": shift["post_name"], "municipality": shift["municipality"], "minutes": 0, "night_minutes": 0, "holiday_minutes": 0, "shift_count": 0})
                 for key in ("minutes", "night_minutes", "holiday_minutes"):
@@ -1107,6 +1353,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(422, str(exc)) from exc
         if not rows:
             raise HTTPException(422, "El archivo no contiene filas de turnos.")
+        if len(rows) > 5000:
+            raise HTTPException(422, "El archivo supera el máximo de 5000 filas. Divídelo en varios archivos.")
         return {"filename": filename, "kind": kind, "count": len(rows), "ready": sum(row["status"] == "ready" for row in rows), "pending": sum(row["status"] == "pending" for row in rows), "rows": rows}
 
     @app.post("/api/imports/preview")
@@ -1178,11 +1426,66 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         writer = csv.writer(output, delimiter=";")
         writer.writerow(["ID empleado","Empleado","Puesto","Municipio","Provincia","Entrada","Salida","Inicio pausa","Fin pausa","Pausa remunerada","Horas trabajadas HH:MM","Horas nocturnas HH:MM","Horas festivas HH:MM"])
         for shift in report["shifts"]:
-            writer.writerow([shift["employee_code"], f"{shift['first_name']} {shift['last_name']}".strip(), shift["post_name"], shift["municipality"], shift["province"], shift["start_at"], shift["end_at"], shift["break_start_at"] or "", shift["break_end_at"] or "", "Sí" if shift["break_paid"] else "No", hhmm(shift["minutes"]), hhmm(shift["night_minutes"]), hhmm(shift["holiday_minutes"])])
+            writer.writerow([safe_export_text(shift["employee_code"]), safe_export_text(f"{shift['first_name']} {shift['last_name']}".strip()), safe_export_text(shift["post_name"]), safe_export_text(shift["municipality"]), safe_export_text(shift["province"]), shift["start_at"], shift["end_at"], shift["break_start_at"] or "", shift["break_end_at"] or "", "Sí" if shift["break_paid"] else "No", hhmm(shift["minutes"]), hhmm(shift["night_minutes"]), hhmm(shift["holiday_minutes"])])
         output.seek(0)
         from fastapi.responses import StreamingResponse
         filename = f"cuadrante-{year}-{month:02d}.csv" if month else f"cuadrante-{year}.csv"
         return StreamingResponse(iter(["\ufeff" + output.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+    @app.get("/api/exports/shifts.xlsx")
+    def export_shifts_xlsx(year: int, month: int | None = None, post_id: str = "") -> Response:
+        if year < 2000 or year > 2200 or (month is not None and not 1 <= month <= 12):
+            raise HTTPException(422, "Periodo no válido.")
+        report = reports(year=year, month=month, q="", post_id=post_id)
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+        except Exception as exc:
+            raise HTTPException(500, "Falta openpyxl para exportar Excel. Instala las dependencias del proyecto.") from exc
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Cuadrante"
+        headers = [
+            "ID empleado", "Empleado", "Puesto", "Municipio", "Provincia", "Fecha",
+            "Entrada", "Salida", "Inicio pausa", "Fin pausa", "Pausa remunerada",
+            "Horas trabajadas HH:MM", "Horas nocturnas HH:MM", "Horas festivas HH:MM",
+        ]
+        sheet.append(headers)
+        for shift in report["shifts"]:
+            sheet.append([
+                safe_export_text(shift["employee_code"]),
+                safe_export_text(f"{shift['first_name']} {shift['last_name']}".strip()),
+                safe_export_text(shift["post_name"]),
+                safe_export_text(shift["municipality"]),
+                safe_export_text(shift["province"]),
+                shift["start_at"][:10],
+                shift["start_at"][11:16],
+                shift["end_at"][11:16],
+                shift["break_start_at"][11:16] if shift["break_start_at"] else "",
+                shift["break_end_at"][11:16] if shift["break_end_at"] else "",
+                "Sí" if shift["break_paid"] else "No",
+                hhmm(shift["minutes"]),
+                hhmm(shift["night_minutes"]),
+                hhmm(shift["holiday_minutes"]),
+            ])
+        header_fill = PatternFill("solid", fgColor="19344B")
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for index, width in enumerate([14, 28, 28, 22, 14, 12, 10, 10, 12, 12, 16, 20, 20, 18], start=1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        filename = f"cuadrante-{year}-{month:02d}.xlsx" if month else f"cuadrante-{year}.xlsx"
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     return app
 

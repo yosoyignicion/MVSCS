@@ -52,10 +52,11 @@ No se persisten totales agregados de turnos como autoridad: los informes derivan
 | `GET/DELETE /api/monthly-summaries` | Listar/eliminar resúmenes mensuales importados |
 | `GET /api/reports` | Totales mensual/anual, por empleado/puesto o agregados diarios (+ `summaries`) |
 | `GET /api/review` | Listar registros pendientes y filas con incidencias |
-| `POST /api/review/{id}/resolve`, `DELETE /api/review/{id}` | Corregir o descartar fila ambigua |
+| `POST /api/review/{id}/resolve`, `POST /api/review/{id}/resolve-summary`, `DELETE /api/review/{id}` | Corregir turno o resumen, o descartar fila ambigua |
 | `POST /api/imports/preview` | Validar CSV/Excel/PDF sin escribir nada (alias `csv/preview`) |
 | `POST /api/imports/confirm` | Auto-crear empleados/puestos, guardar turnos `pending` y resúmenes; filas erróneas a cola (alias `csv/confirm`) |
 | `GET /api/exports/shifts.csv` | Exportar turnos confirmados en CSV |
+| `GET /api/exports/shifts.xlsx` | Exportar turnos confirmados en Excel editable |
 
 Los endpoints de API interactúan con SQLite directamente dentro de `main.py`. Si la lógica crece, separar módulos de dominio/repositorios cuando la división reduzca duplicación real; no crear capas vacías de antemano.
 
@@ -63,6 +64,6 @@ Los endpoints de API interactúan con SQLite directamente dentro de `main.py`. S
 
 - No hay autenticación: loopback no equivale a control de acceso. No exponer el puerto a una red compartida.
 - El importador acepta CSV, Excel (.xlsx/.xlsm) y PDF digital con tabla. PDF escaneado/OCR, comprensión de colores y LM Studio aún no existen.
-- Festivos estatales y autonómicos (Comunitat Valenciana 2025–2026) y locales de Castelló 2026 se precargan para Castelló de la Plana; el resto de locales y los puestos se mantienen manualmente. La app no descarga calendarios de Internet en tiempo de ejecución.
+- Los festivos nacionales y autonómicos se replican automáticamente a todos los municipios con puestos; los locales de Castelló se calculan por reglas. Se generan los próximos cinco ejercicios y el usuario puede descartar fechas (el descarte es duradero). La app no descarga calendarios de Internet.
 - La bandeja de revisión cubre filas dudosas y turnos importados pendientes; no es un sistema completo de auditoría/versionado.
-- No se ofrece restauración de copias, exportación XLSX/PDF ni informes de nómina.
+- No se ofrece restauración de copias, exportación PDF ni informes de nómina; sí exportación XLSX y CSV.

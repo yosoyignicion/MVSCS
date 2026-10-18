@@ -40,7 +40,10 @@ def free_port(preferred: int) -> int:
 
 
 def dependencies_ready() -> tuple[bool, str]:
-    missing = [name for name in ("fastapi", "uvicorn") if not _importable(name)]
+    required = ["fastapi", "uvicorn", "multipart", "openpyxl", "fitz"]
+    if sys.platform.startswith("win"):
+        required.append("tzdata")
+    missing = [name for name in required if not _importable(name)]
     if not missing:
         return True, ""
     return False, " ".join(missing)

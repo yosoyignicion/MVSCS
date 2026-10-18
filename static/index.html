@@ -25,6 +25,10 @@
         <a href="#puestos" class="nav-item" data-view="posts"><span class="nav-icon">⌖</span><span>Puestos</span></a>
         <a href="#revision" class="nav-item" data-view="review"><span class="nav-icon">◷</span><span>Por revisar</span><span class="nav-count" id="review-count">0</span></a>
       </nav>
+      <details class="sidebar-holidays-block">
+        <summary><span>PRÓXIMOS FESTIVOS</span><span class="sidebar-holidays-count" id="sidebar-holidays-count">0</span></summary>
+        <div class="sidebar-holidays" id="sidebar-holidays"></div>
+      </details>
       <div class="sidebar-bottom">
         <div class="privacy-card"><span class="privacy-lock">▣</span><div><strong>Datos en este equipo</strong><small>Sin conexión externa</small></div><span class="online-dot"></span></div>
         <div class="profile"><span class="avatar">AD</span><span><strong>Administración</strong><small>Gestión de turnos</small></span><span class="profile-more">···</span></div>
@@ -75,7 +79,8 @@
           <label class="select-wrap"><span class="select-caption">PUESTO</span><select class="post-select" id="page-post-filter"><option value="">Todos los puestos</option></select><span class="select-chevron">⌄</span></label>
           <div class="control-spacer"></div>
           <button class="button button-secondary" id="toggle-excel">▦ Vista Excel</button>
-          <button class="button button-secondary" id="export-csv">↓ Exportar CSV</button>
+          <label class="select-wrap export-format"><span class="select-caption">EXPORTAR</span><select id="export-format"><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option></select><span class="select-chevron">⌄</span></label>
+          <button class="button button-primary" id="export-file">↓ Exportar</button>
         </div>
         <div class="bulk-bar hidden" id="bulk-bar">
           <strong id="bulk-count">0 seleccionados</strong>
@@ -83,12 +88,12 @@
           <button class="button button-primary" type="button" id="bulk-review">→ Enviar a revisión</button>
         </div>
         <div class="table-card" id="shifts-card">
-          <div class="table-scroll"><table><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>EMPLEADO</th><th>PUESTO / MUNICIPIO</th><th>FECHA</th><th>HORARIO</th><th>PAUSA</th><th>DURACIÓN</th><th>NOCHE</th><th>FESTIVAS</th><th>ACCIONES</th></tr></thead><tbody id="shifts-body"></tbody></table></div>
+          <div class="table-scroll"><table class="shifts-table"><colgroup><col style="width:28px"><col style="width:194px"><col style="width:150px"><col style="width:64px"><col style="width:92px"><col style="width:58px"><col style="width:62px"><col style="width:46px"><col style="width:56px"><col style="width:95px"></colgroup><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>EMPLEADO</th><th>PUESTO / MUNICIPIO</th><th>FECHA</th><th>HORARIO</th><th>PAUSA</th><th>DURACIÓN</th><th>NOCHE</th><th>FESTIVAS</th><th>ACCIONES</th></tr></thead><tbody id="shifts-body"></tbody></table></div>
           <div class="table-empty hidden" id="shifts-empty"><span>▦</span><strong>No hay turnos para mostrar</strong><small>Cambia el periodo o registra un turno.</small></div>
         </div>
         <div class="table-card hidden" id="excel-card">
           <div class="excel-toolbar"><div><strong>Edición rápida</strong><small>Cambia empleado, puesto u horario en la propia tabla y pulsa «Guardar cambios».</small></div><button class="button button-primary" type="button" id="excel-save">Guardar cambios</button></div>
-          <div class="table-scroll"><table class="excel-table"><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>EMPLEADO</th><th>PUESTO</th><th>ENTRADA</th><th>SALIDA</th><th>PAUSA INI</th><th>PAUSA FIN</th><th>PAGADA</th><th>DURACIÓN</th><th>ACCIÓN</th></tr></thead><tbody id="excel-body"></tbody></table></div>
+          <div class="table-scroll"><table class="excel-table"><colgroup><col style="width:28px"><col style="width:106px"><col style="width:112px"><col style="width:128px"><col style="width:120px"><col style="width:136px"><col style="width:64px"><col style="width:52px"><col style="width:60px"><col style="width:64px"></colgroup><thead><tr><th class="check-col"><input type="checkbox" class="select-all-shifts" aria-label="Seleccionar todos los turnos"></th><th>FECHA</th><th>NOMBRE</th><th>PUESTO / MUNICIPIO</th><th>HORARIO</th><th>PAUSA</th><th>DUR.</th><th>NOCHE</th><th>FEST.</th><th>ACCIÓN</th></tr></thead><tbody id="excel-body"></tbody></table></div>
           <div class="table-empty hidden" id="excel-empty"><span>▦</span><strong>No hay turnos para editar</strong><small>Cambia el periodo o registra un turno.</small></div>
         </div>
       </section>
